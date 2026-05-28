@@ -1,0 +1,131 @@
+use core.term;
+use core.fs;
+fn log_fields2(k1: str, v1: str, k2: str, v2: str) -> str {
+    let fields = map.new() discard map.set(fields, k1, v1) discard map.set(fields, k2, v2) return log.fields(fields)
+}
+fn json_obj1(k1: str, v1: str) -> str {
+    let obj = map.new() discard map.set(obj, k1, v1) return json.object(obj)
+}
+fn json_obj2(k1: str, v1: str, k2: str, v2: str) -> str {
+    let obj = map.new() discard map.set(obj, k1, v1) discard map.set(obj, k2, v2) return json.object(obj)
+}
+fn json_obj3(k1: str, v1: str, k2: str, v2: str, k3: str, v3: str) -> str {
+    let obj = map.new() discard map.set(obj, k1, v1) discard map.set(obj, k2, v2) discard map.set(obj, k3, v3) return json.object(obj)
+}
+fn json_obj4(k1: str, v1: str, k2: str, v2: str, k3: str, v3: str, k4: str, v4: str) -> str {
+    let obj = map.new() discard map.set(obj, k1, v1) discard map.set(obj, k2, v2) discard map.set(obj, k3, v3) discard map.set(obj, k4, v4) return json.object(obj)
+}
+fn json_arr1(v1: str) -> str {
+    let items = list.new() discard list.push(items, v1) return json.array(items)
+}
+fn json_arr2(v1: str, v2: str) -> str {
+    let items = list.new() discard list.push(items, v1) discard list.push(items, v2) return json.array(items)
+}
+fn json_arr3(v1: str, v2: str, v3: str) -> str {
+    let items = list.new() discard list.push(items, v1) discard list.push(items, v2) discard list.push(items, v3) return json.array(items)
+}
+fn env_or(key: str, fallback: str) -> str {
+    let value = env.get(key);
+    if value == "" {
+        return fallback
+    }
+    return value
+}
+fn bool_text(value: i32) -> str {
+    if value == 0 {
+        return "false"
+    }
+    return "true"
+}
+fn read_or(path: str, fallback: str) -> str {
+    if fs.exists(path) == 0 {
+        return fallback
+    }
+    let value = fs.read_file(path);
+    if value == "" {
+        return fallback
+    }
+    return value
+}
+fn first_line(text_value: str) -> str {
+    let mut idx: i32 = 0;
+    while idx < str.len(text_value) {
+        if str.slice(text_value, idx, idx + 1) == "\n" {
+            return str.slice(text_value, 0, idx)
+        }
+        idx += 1
+    }
+    return text_value
+}
+fn drop_first_line(text_value: str) -> str {
+    let mut idx: i32 = 0;
+    while idx < str.len(text_value) {
+        if str.slice(text_value, idx, idx + 1) == "\n" {
+            if idx + 1 >= str.len(text_value) {
+                return ""
+            }
+            return str.slice(text_value, idx + 1, str.len(text_value))
+        }
+        idx += 1
+    }
+    return ""
+}
+fn count_lines(text_value: str) -> i32 {
+    if text_value == "" {
+        return 0
+    }
+    let mut count: i32 = 1;
+    let mut idx: i32 = 0;
+    while idx < str.len(text_value) {
+        if str.slice(text_value, idx, idx + 1) == "\n" {
+            count += 1
+        }
+        idx += 1
+    }
+    return count
+}
+fn println(text: str) -> i32 {
+    return term.print_line(text)
+}
+fn digit_value(ch: str) -> i32 {
+    if ch == "0" {
+        return 0
+    }
+    if ch == "1" {
+        return 1
+    }
+    if ch == "2" {
+        return 2
+    }
+    if ch == "3" {
+        return 3
+    }
+    if ch == "4" {
+        return 4
+    }
+    if ch == "5" {
+        return 5
+    }
+    if ch == "6" {
+        return 6
+    }
+    if ch == "7" {
+        return 7
+    }
+    if ch == "8" {
+        return 8
+    }
+    if ch == "9" {
+        return 9
+    }
+    return 0
+}
+fn parse_i32(text: str) -> i32 {
+    let mut idx: i32 = 0;
+    let mut value: i32 = 0;
+    while idx < str.len(text) {
+        value = (value * 10) + digit_value(str.slice(text, idx, idx + 1));
+        idx += 1
+    }
+    return value
+}

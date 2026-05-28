@@ -1,0 +1,12 @@
+{
+  "dependencyGraphHash": "f3ab534aa3671df875eb3215894b4118a5363769c74818238cb2293df48ae03b",
+  "graph": {
+    "deps": [],
+    "package": {
+      "manifestHash": "59246ca57efb6f2418a2c975441f9ac386d10c76f6ef4e501ae23b01a812a06d",
+      "name": "superctx",
+      "version": "0.1.0"
+    }
+  },
+  "schemaVersion": "fozzylang.lock.v0"
+}

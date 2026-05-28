@@ -1,0 +1,15 @@
+fn write_session_trace(session_id: str, event: str, details_json: str) -> i32 {
+    let payload = model.types.trace_event_json(event, "ok", session_id, details_json, services.store.now_text()) return services.store.save_trace(session_id, "session.trace.json", payload)
+}
+fn write_memory_diff(session_id: str, details_json: str) -> i32 {
+    return services.store.save_trace(session_id, "memory.diff.json", details_json)
+}
+fn write_tool_events(session_id: str, details_json: str) -> i32 {
+    return services.store.save_trace(session_id, "tool.events.json", details_json)
+}
+fn write_inference_events(session_id: str, details_json: str) -> i32 {
+    return services.store.save_trace(session_id, "inference.events.json", details_json)
+}
+fn replay_json(session_id: str) -> str {
+    let payload = map.new() discard map.set(payload, "session_trace", json.raw(services.store.load_trace(session_id, "session.trace.json"))) discard map.set(payload, "memory_diff", json.raw(services.store.load_trace(session_id, "memory.diff.json"))) discard map.set(payload, "context_frame", json.raw(services.store.load_trace(session_id, "context.frame.json"))) discard map.set(payload, "tool_events", json.raw(services.store.load_trace(session_id, "tool.events.json"))) discard map.set(payload, "inference_events", json.raw(services.store.load_trace(session_id, "inference.events.json"))) return json.object(payload)
+}

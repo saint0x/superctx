@@ -1,0 +1,21 @@
+test "det_boot_and_health" {
+    model.preflight() runtime.boot() let payload = runtime.health_json() if payload == "" {
+        checkpoint()
+    }
+}
+test "det_memory_roundtrip" {
+    runtime.boot() let created = services.brain.remember("workspace", "fact", "planner uses scoped memory", 8, 9, 1, "persistent", "test", "workspace", "test-session") let created_parsed = json.parse(created) let memory_id = json.get_str(created_parsed, "id") if memory_id == "" {
+        checkpoint()
+    }
+    let pinned = services.brain.set_pin(memory_id, "true") if json.get_str(json.parse(pinned), "pinned") != "true" {
+        checkpoint()
+    }
+    let frame = runtime.ask("test-session", "workspace", "scoped memory") if json.get_str(json.parse(frame), "user_request") == "" {
+        checkpoint()
+    }
+}
+test "det_snapshot_restore" {
+    runtime.boot() discard services.brain.remember("global", "fact", "user prefers deterministic traces", 7, 8, 0, "persistent", "test", "workspace", "snap-session") let snapshot = services.brain.snapshot() let snapshot_id = json.get_str(json.parse(snapshot), "snapshot_id") let restored = services.brain.restore(snapshot_id) if json.get_str(json.parse(restored), "status") != "ok" {
+        checkpoint()
+    }
+}

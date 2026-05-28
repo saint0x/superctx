@@ -1,0 +1,168 @@
+use core.fs;
+use core.storage;
+use core.time;
+fn workspace_root() -> str {
+    return util.env_or("SUPERCTX_WORKSPACE_ROOT", "/Users/deepsaint/Desktop/superctx")
+}
+fn state_root() -> str {
+    return str.concat(workspace_root(), "/.superctx")
+}
+fn memory_dir() -> str {
+    return str.concat(state_root(), "/memory")
+}
+fn links_dir() -> str {
+    return str.concat(state_root(), "/links")
+}
+fn sessions_dir() -> str {
+    return str.concat(state_root(), "/sessions")
+}
+fn traces_dir() -> str {
+    return str.concat(state_root(), "/traces")
+}
+fn snapshots_dir() -> str {
+    return str.concat(state_root(), "/snapshots")
+}
+fn counters_dir() -> str {
+    return str.concat(state_root(), "/counters")
+}
+fn memory_index_path() -> str {
+    return str.concat(memory_dir(), "/memory_ids.log")
+}
+fn links_index_path() -> str {
+    return str.concat(links_dir(), "/links.log")
+}
+fn session_index_path() -> str {
+    return str.concat(sessions_dir(), "/session_ids.log")
+}
+fn counter_path(name: str) -> str {
+    return str.concat(str.concat(counters_dir(), "/"), str.concat(name, ".txt"))
+}
+fn memory_doc_path(memory_id: str) -> str {
+    return str.concat(str.concat(memory_dir(), "/"), str.concat(memory_id, ".json"))
+}
+fn link_doc_path(link_id: str) -> str {
+    return str.concat(str.concat(links_dir(), "/"), str.concat(link_id, ".json"))
+}
+fn session_dir(session_id: str) -> str {
+    return str.concat(str.concat(sessions_dir(), "/"), session_id)
+}
+fn session_doc_path(session_id: str) -> str {
+    return str.concat(session_dir(session_id), "/session.json")
+}
+fn session_registers_path(session_id: str) -> str {
+    return str.concat(session_dir(session_id), "/registers.json")
+}
+fn session_stack_path(session_id: str) -> str {
+    return str.concat(session_dir(session_id), "/stack.json")
+}
+fn session_frame_path(session_id: str) -> str {
+    return str.concat(session_dir(session_id), "/context.frame.json")
+}
+fn trace_dir(session_id: str) -> str {
+    return str.concat(str.concat(traces_dir(), "/"), session_id)
+}
+fn trace_path(session_id: str, name: str) -> str {
+    return str.concat(str.concat(trace_dir(session_id), "/"), name)
+}
+fn snapshot_path(snapshot_id: str) -> str {
+    return str.concat(str.concat(snapshots_dir(), "/"), str.concat(snapshot_id, ".json"))
+}
+fn now_text() -> str {
+    return str.from_i32(time.now())
+}
+fn ensure_state() -> i32 {
+    fs.mkdir(state_root()) fs.mkdir(memory_dir()) fs.mkdir(links_dir()) fs.mkdir(sessions_dir()) fs.mkdir(traces_dir()) fs.mkdir(snapshots_dir()) fs.mkdir(counters_dir()) if fs.exists(memory_index_path()) == 0 {
+        fs.write_file(memory_index_path(), "")
+    }
+    if fs.exists(links_index_path()) == 0 {
+        fs.write_file(links_index_path(), "")
+    }
+    if fs.exists(session_index_path()) == 0 {
+        fs.write_file(session_index_path(), "")
+    }
+    return 0
+}
+fn ensure_session(session_id: str) -> i32 {
+    ensure_state() fs.mkdir(session_dir(session_id)) return 0
+}
+fn next_counter(name: str) -> str {
+    ensure_state() let path = counter_path(name) let current_text = util.read_or(path, "0") let next_value = str.from_i32(util.parse_i32(current_text) + 1) fs.write_file(path, next_value) return next_value
+}
+fn next_memory_id() -> str {
+    return str.concat("mem-", next_counter("memory"))
+}
+fn next_link_id() -> str {
+    return str.concat("lnk-", next_counter("link"))
+}
+fn next_snapshot_id() -> str {
+    return str.concat("snap-", next_counter("snapshot"))
+}
+fn append_line(path: str, line: str) -> i32 {
+    discard storage.atomic_append(path, line) return 0
+}
+fn append_memory_id(memory_id: str) -> i32 {
+    return append_line(memory_index_path(), memory_id)
+}
+fn append_link_id(link_id: str) -> i32 {
+    return append_line(links_index_path(), link_id)
+}
+fn append_session_id(session_id: str) -> i32 {
+    return append_line(session_index_path(), session_id)
+}
+fn save_memory(memory_id: str, payload: str) -> i32 {
+    ensure_state() fs.write_file(memory_doc_path(memory_id), payload) return 0
+}
+fn save_link(link_id: str, payload: str) -> i32 {
+    ensure_state() fs.write_file(link_doc_path(link_id), payload) return 0
+}
+fn save_session(session_id: str, payload: str) -> i32 {
+    ensure_session(session_id) fs.write_file(session_doc_path(session_id), payload) return 0
+}
+fn save_registers(session_id: str, payload: str) -> i32 {
+    ensure_session(session_id) fs.write_file(session_registers_path(session_id), payload) return 0
+}
+fn save_stack(session_id: str, payload: str) -> i32 {
+    ensure_session(session_id) fs.write_file(session_stack_path(session_id), payload) return 0
+}
+fn save_frame(session_id: str, payload: str) -> i32 {
+    ensure_session(session_id) fs.write_file(session_frame_path(session_id), payload) return 0
+}
+fn save_trace(session_id: str, name: str, payload: str) -> i32 {
+    ensure_state() fs.mkdir(trace_dir(session_id)) fs.write_file(trace_path(session_id, name), payload) return 0
+}
+fn load_memory(memory_id: str) -> str {
+    return util.read_or(memory_doc_path(memory_id), "")
+}
+fn load_link(link_id: str) -> str {
+    return util.read_or(link_doc_path(link_id), "")
+}
+fn load_session(session_id: str) -> str {
+    return util.read_or(session_doc_path(session_id), "")
+}
+fn load_registers(session_id: str) -> str {
+    return util.read_or(session_registers_path(session_id), "{}")
+}
+fn load_stack(session_id: str) -> str {
+    return util.read_or(session_stack_path(session_id), "[]")
+}
+fn load_frame(session_id: str) -> str {
+    return util.read_or(session_frame_path(session_id), "{}")
+}
+fn load_trace(session_id: str, name: str) -> str {
+    return util.read_or(trace_path(session_id, name), "{}")
+}
+fn memory_ids_text() -> str {
+    return util.read_or(memory_index_path(), "")
+}
+fn links_ids_text() -> str {
+    return util.read_or(links_index_path(), "")
+}
+fn session_ids_text() -> str {
+    return util.read_or(session_index_path(), "")
+}
+fn save_snapshot(snapshot_id: str, payload: str) -> i32 {
+    ensure_state() fs.write_file(snapshot_path(snapshot_id), payload) return 0
+}
+fn load_snapshot(snapshot_id: str) -> str {
+    return util.read_or(snapshot_path(snapshot_id), "")
+}

@@ -1,0 +1,44 @@
+use core.http;
+fn serve_forever() -> i32 {
+    let listener: HttpHandle = http.bind() http.listen(listener) close(listener) return 0
+}
+fn dispatch(conn: HttpHandle) -> i32 {
+    let method = http.method(conn);
+    let path = http.path(conn);
+    if method == "GET" {
+        if path == "/healthz" {
+            return services.http.handle_health(conn)
+        }
+    }
+    if method == "GET" {
+        if path == "/adapters" {
+            return services.http.handle_adapters(conn)
+        }
+    }
+    if method == "POST" {
+        if path == "/sessions" {
+            return services.http.handle_session_create(conn)
+        }
+    }
+    if method == "GET" {
+        if str.starts_with(path, "/sessions/") == 1 {
+            if str.ends_with(path, "/frame") == 0 {
+                return services.http.handle_session_get(conn, path)
+            }
+        }
+    }
+    if method == "POST" {
+        if str.starts_with(path, "/sessions/") == 1 {
+            if str.ends_with(path, "/frame") == 1 {
+                return services.http.handle_frame(conn, path)
+            }
+        }
+    }
+    if method == "GET" {
+        if str.starts_with(path, "/traces/") == 1 {
+            return services.http.handle_trace_get(conn, path)
+        }
+    }
+    http.write_json(conn, 404, util.json_obj2("status", json.str("error"), "message", json.str("not_found")));
+    return 0
+}

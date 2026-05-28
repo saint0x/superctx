@@ -1,0 +1,273 @@
+fn active_status() -> str {
+    return "active"
+}
+fn pinned_text(current: str) -> str {
+    if current == "true" {
+        return "true"
+    }
+    return "false"
+}
+fn memory_scope(parsed: JsonHandle) -> str {
+    return json.get_str(parsed, "scope")
+}
+fn memory_kind(parsed: JsonHandle) -> str {
+    return json.get_str(parsed, "kind")
+}
+fn memory_content(parsed: JsonHandle) -> str {
+    return json.get_str(parsed, "content")
+}
+fn memory_importance(parsed: JsonHandle) -> i32 {
+    return util.parse_i32(json.get_str(parsed, "importance"))
+}
+fn memory_confidence(parsed: JsonHandle) -> i32 {
+    return util.parse_i32(json.get_str(parsed, "confidence"))
+}
+fn memory_pinned(parsed: JsonHandle) -> str {
+    return pinned_text(json.get_str(parsed, "pinned"))
+}
+fn memory_ttl(parsed: JsonHandle) -> str {
+    return json.get_str(parsed, "ttl")
+}
+fn memory_provenance(parsed: JsonHandle) -> str {
+    return json.get_str(parsed, "provenance")
+}
+fn memory_workspace_id(parsed: JsonHandle) -> str {
+    return json.get_str(parsed, "workspace_id")
+}
+fn memory_session_id(parsed: JsonHandle) -> str {
+    return json.get_str(parsed, "session_id")
+}
+fn memory_created_at(parsed: JsonHandle) -> str {
+    return json.get_str(parsed, "created_at")
+}
+fn memory_status(parsed: JsonHandle) -> str {
+    return json.get_str(parsed, "status")
+}
+fn memory_id(parsed: JsonHandle) -> str {
+    return json.get_str(parsed, "id")
+}
+fn memory_json_with(parsed: JsonHandle, content: str, importance: str, pinned: str, scope: str, status: str) -> str {
+    let now = services.store.now_text() return model.types.memory_json(memory_id(parsed), scope, memory_kind(parsed), content, importance, json.get_str(parsed, "confidence"), pinned, memory_ttl(parsed), memory_provenance(parsed), memory_workspace_id(parsed), memory_session_id(parsed), memory_created_at(parsed), now, now, status,)
+}
+fn remember(scope: str, kind: str, content: str, importance: i32, confidence: i32, pinned: i32, ttl: str, provenance: str, workspace_id: str, session_id: str) -> str {
+    services.store.ensure_state() let memory_id = services.store.next_memory_id() let now = services.store.now_text() let payload = model.types.memory_json(memory_id, scope, kind, content, str.from_i32(importance), str.from_i32(confidence), util.bool_text(pinned), ttl, provenance, workspace_id, session_id, now, now, now, active_status(),) services.store.save_memory(memory_id, payload) services.store.append_memory_id(memory_id) return payload
+}
+fn load_memory_parsed(memory_id: str) -> JsonHandle {
+    return json.parse(services.store.load_memory(memory_id))
+}
+fn update_memory(memory_id: str, content: str) -> str {
+    let parsed = load_memory_parsed(memory_id) let payload = memory_json_with(parsed, content, json.get_str(parsed, "importance"), memory_pinned(parsed), memory_scope(parsed), active_status()) services.store.save_memory(memory_id, payload) return payload
+}
+fn set_pin(memory_id: str, pinned: str) -> str {
+    let parsed = load_memory_parsed(memory_id) let payload = memory_json_with(parsed, memory_content(parsed), json.get_str(parsed, "importance"), pinned, memory_scope(parsed), active_status()) services.store.save_memory(memory_id, payload) return payload
+}
+fn promote(memory_id: str) -> str {
+    let parsed = load_memory_parsed(memory_id) let next_importance = str.from_i32(memory_importance(parsed) + 1) let next_scope = if memory_scope(parsed) == "short_term" {
+        "long_term"
+    } else {
+        memory_scope(parsed)
+    }
+    let payload = memory_json_with(parsed, memory_content(parsed), next_importance, "true", next_scope, active_status()) services.store.save_memory(memory_id, payload) return payload
+}
+fn demote(memory_id: str) -> str {
+    let parsed = load_memory_parsed(memory_id) let current = memory_importance(parsed) let next_importance = if current <= 0 {
+        "0"
+    } else {
+        str.from_i32(current - 1)
+    }
+    let next_scope = if memory_scope(parsed) == "long_term" {
+        "short_term"
+    } else {
+        memory_scope(parsed)
+    }
+    let payload = memory_json_with(parsed, memory_content(parsed), next_importance, memory_pinned(parsed), next_scope, active_status()) services.store.save_memory(memory_id, payload) return payload
+}
+fn forget(memory_id: str) -> str {
+    let parsed = load_memory_parsed(memory_id);
+    let payload = memory_json_with(parsed, memory_content(parsed), json.get_str(parsed, "importance"), "false", memory_scope(parsed), "forgotten");
+    services.store.save_memory(memory_id, payload);
+    return payload
+}
+
+fn score_memory(parsed: JsonHandle, request: str, workspace_id: str, session_id: str) -> i32 {
+    let mut score = memory_importance(parsed) * 10;
+    score = score + (memory_confidence(parsed) * 5);
+    if memory_pinned(parsed) == "true" {
+        score = score + 50
+    }
+    if memory_workspace_id(parsed) != "" {
+        if memory_workspace_id(parsed) == workspace_id {
+            score = score + 20
+        }
+    }
+    if memory_session_id(parsed) != "" {
+        if memory_session_id(parsed) == session_id {
+            score = score + 10
+        }
+    }
+    if request != "" {
+        if str.contains(memory_content(parsed), request) == 1 {
+            score = score + 25
+        }
+    }
+    if request != "" {
+        if str.contains(request, memory_kind(parsed)) == 1 {
+            score = score + 10
+        }
+    }
+    return score
+}
+
+fn maybe_push_ranked(results: ListHandle, parsed: JsonHandle, request: str, workspace_id: str, session_id: str, min_score: i32) -> i32 {
+    if memory_status(parsed) != active_status() {
+        return 0
+    }
+    let score = score_memory(parsed, request, workspace_id, session_id);
+    if score < min_score {
+        return 0
+    }
+    discard list.push(results, json.raw(services.store.load_memory(memory_id(parsed))));
+    return 0
+}
+
+fn query_json(request: str, workspace_id: str, session_id: str, limit: i32) -> str {
+    let ids_text = services.store.memory_ids_text();
+    let results = list.new();
+    let mut remaining = ids_text;
+    while remaining != "" {
+        let current_id = util.first_line(remaining);
+        if current_id != "" {
+            let raw = services.store.load_memory(current_id);
+            if raw != "" {
+                let parsed = json.parse(raw);
+                discard maybe_push_ranked(results, parsed, request, workspace_id, session_id, 10);
+                if list.len(results) >= limit {
+                    break
+                }
+            }
+        }
+        remaining = util.drop_first_line(remaining);
+    }
+    return json.array(results)
+}
+fn pin_count(selected_json: str) -> str {
+    if selected_json == "[]" {
+        return "0"
+    }
+    let parsed = json.parse(selected_json);
+    let mut idx: i32 = 0;
+    let mut count: i32 = 0;
+    while idx < 8 {
+        let item = json.get(parsed, str.from_i32(idx));
+        let raw = json.get_str(item, "raw");
+        if raw != "" {
+            if memory_pinned(json.parse(raw)) == "true" {
+                count += 1
+            }
+        }
+        idx += 1
+    }
+    return str.from_i32(count)
+}
+fn link(from_id: str, relation: str, to_id: str) -> str {
+    let link_id = services.store.next_link_id();
+    let payload = model.types.link_json(link_id, from_id, relation, to_id, services.store.now_text());
+    services.store.save_link(link_id, payload);
+    services.store.append_link_id(link_id);
+    return payload
+}
+fn collect_memory_records_text() -> str {
+    let ids_text = services.store.memory_ids_text();
+    let mut remaining = ids_text;
+    let mut out = "";
+    while remaining != "" {
+        let current_id = util.first_line(remaining);
+        if current_id != "" {
+            let raw = services.store.load_memory(current_id);
+            if raw != "" {
+                if out == "" {
+                    out = raw
+                } else {
+                    out = str.concat(str.concat(out, "\n"), raw)
+                }
+            }
+        }
+        remaining = util.drop_first_line(remaining)
+    }
+    return out
+}
+fn collect_links_records_text() -> str {
+    let ids_text = services.store.links_ids_text();
+    let mut remaining = ids_text;
+    let mut out = "";
+    while remaining != "" {
+        let current_id = util.first_line(remaining);
+        if current_id != "" {
+            let raw = services.store.load_link(current_id);
+            if raw != "" {
+                if out == "" {
+                    out = raw
+                } else {
+                    out = str.concat(str.concat(out, "\n"), raw)
+                }
+            }
+        }
+        remaining = util.drop_first_line(remaining)
+    }
+    return out
+}
+fn snapshot() -> str {
+    let snapshot_id = services.store.next_snapshot_id();
+    let payload = model.types.snapshot_json(snapshot_id, services.store.memory_ids_text(), collect_memory_records_text(), collect_links_records_text(), services.store.now_text());
+    services.store.save_snapshot(snapshot_id, payload);
+    return payload
+}
+fn restore(snapshot_id: str) -> str {
+    let raw = services.store.load_snapshot(snapshot_id);
+    if raw == "" {
+        return util.json_obj2("status", json.str("error"), "message", json.str("snapshot_not_found"))
+    }
+    let parsed = json.parse(raw);
+    let memory_index_text = json.get_str(parsed, "memory_index_text");
+    let memory_records_text = json.get_str(parsed, "memory_records_text");
+    let links_text = json.get_str(parsed, "links_text");
+    fs.write_file(services.store.memory_index_path(), memory_index_text);
+    fs.write_file(services.store.links_index_path(), "");
+    let mut remaining = memory_records_text;
+    while remaining != "" {
+        let line = util.first_line(remaining);
+        if line != "" {
+            let memory = json.parse(line);
+            services.store.save_memory(memory_id(memory), line)
+        }
+        remaining = util.drop_first_line(remaining)
+    }
+    let mut remaining_links = links_text;
+    while remaining_links != "" {
+        let line = util.first_line(remaining_links);
+        if line != "" {
+            let link_parsed = json.parse(line);
+            let link_id = json.get_str(link_parsed, "id");
+            services.store.save_link(link_id, line);
+            services.store.append_link_id(link_id)
+        }
+        remaining_links = util.drop_first_line(remaining_links)
+    }
+    return util.json_obj2("status", json.str("ok"), "snapshot_id", json.str(snapshot_id))
+}
+fn compact(workspace_id: str, session_id: str, request: str) -> str {
+    let selected = query_json(request, workspace_id, session_id, 3);
+    let summary = remember("workspace", "summary", str.concat("Compacted context for request: ", request), 9, 9, 1, "persistent", "brain.compact", workspace_id, session_id);
+    let parsed = json.parse(selected);
+    let mut idx: i32 = 0;
+    while idx < 3 {
+        let item = json.get(parsed, str.from_i32(idx));
+        let raw = json.get_str(item, "raw");
+        if raw != "" {
+            let source = json.parse(raw);
+            discard link(json.get_str(json.parse(summary), "id"), "derived_from", memory_id(source))
+        }
+        idx += 1
+    }
+    return summary
+}

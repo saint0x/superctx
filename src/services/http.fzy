@@ -1,0 +1,61 @@
+use core.http;
+fn health_payload() -> str {
+    return runtime.health_json()
+}
+fn session_id_from_path(path: str) -> str {
+    let prefix = "/sessions/" let plen = str.len(prefix) if str.len(path) <= plen {
+        return ""
+    }
+    let trimmed = str.slice(path, plen, str.len(path)) if str.ends_with(trimmed, "/frame") == 1 {
+        return str.slice(trimmed, 0, str.len(trimmed) - str.len("/frame"))
+    }
+    return trimmed
+}
+fn handle_health(conn: HttpHandle) -> i32 {
+    http.write_json(conn, 200, health_payload()) return 0
+}
+fn handle_adapters(conn: HttpHandle) -> i32 {
+    http.write_json(conn, 200, services.adapters.list_json()) return 0
+}
+fn handle_session_create(conn: HttpHandle) -> i32 {
+    let raw = http.body(conn) let parsed = json.parse(if raw == "" {
+        "{}"
+    } else {
+        raw
+    }
+    ) let session_id = json.get_str(parsed, "session_id") let workspace_id = json.get_str(parsed, "workspace_id") let request = json.get_str(parsed, "request") let payload = runtime.start_session(if session_id == "" {
+        "default"
+    } else {
+        session_id
+    }
+    , if workspace_id == "" {
+        "workspace"
+    } else {
+        workspace_id
+    }
+    , request) http.write_json(conn, 200, payload) return 0
+}
+fn handle_session_get(conn: HttpHandle, path: str) -> i32 {
+    let session_id = session_id_from_path(path) let payload = services.store.load_session(session_id) http.write_json(conn, 200, if payload == "" {
+        "{}"
+    } else {
+        payload
+    }
+    ) return 0
+}
+fn handle_frame(conn: HttpHandle, path: str) -> i32 {
+    let session_id = session_id_from_path(path) let raw = http.body(conn) let parsed = json.parse(if raw == "" {
+        "{}"
+    } else {
+        raw
+    }
+    ) let workspace_id = json.get_str(parsed, "workspace_id") let request = json.get_str(parsed, "request") let payload = runtime.ask(session_id, if workspace_id == "" {
+        "workspace"
+    } else {
+        workspace_id
+    }
+    , request) http.write_json(conn, 200, payload) return 0
+}
+fn handle_trace_get(conn: HttpHandle, path: str) -> i32 {
+    let session_id = str.slice(path, str.len("/traces/"), str.len(path)) http.write_json(conn, 200, services.traces.replay_json(session_id)) return 0
+}

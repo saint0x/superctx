@@ -1,0 +1,10 @@
+mod store;
+mod adapters;
+mod traces;
+mod brain;
+mod planner;
+mod http;
+mod web;
+fn boot_all() -> i32 {
+    store.ensure_state() return 0
+}

@@ -1,0 +1,15 @@
+fn default_system_prompt() -> str {
+    return util.read_or(
+        str.concat(services.store.workspace_root(), "/config/fzl_system_prompt.md"),
+        "You are operating inside FZL. Memory is external, scoped, durable, and must be mutated only through explicit brain tools.",
+    )
+}
+fn default_stack_json(request: str) -> str {
+    let stack = list.new() discard list.push(stack, json.str(str.concat("request=", request))) discard list.push(stack, json.str("planner=deterministic")) discard list.push(stack, json.str("runtime=fzy")) return json.array(stack)
+}
+fn default_artifacts_json(session_id: str) -> str {
+    let payload = map.new() discard map.set(payload, "trace_dir", json.str(services.store.trace_dir(session_id))) discard map.set(payload, "frame_path", json.str(services.store.session_frame_path(session_id))) discard map.set(payload, "snapshot_dir", json.str(services.store.snapshots_dir())) return json.object(payload)
+}
+fn compile_frame(session_id: str, workspace_id: str, request: str) -> str {
+    services.store.ensure_session(session_id) let selected_memory = services.brain.query_json(request, workspace_id, session_id, 6) let registers = model.types.registers_json(request, "", workspace_id, "deterministic") let stack = default_stack_json(request) let planner = model.types.planner_summary_json(str.from_i32(util.count_lines(selected_memory)), services.brain.pin_count(selected_memory), request) let frame = model.types.frame_json(default_system_prompt(), registers, stack, selected_memory, default_artifacts_json(session_id), services.adapters.tool_schemas_json(), request, planner,) services.store.save_registers(session_id, registers) services.store.save_stack(session_id, stack) services.store.save_frame(session_id, frame) services.store.save_trace(session_id, "context.frame.json", frame) services.traces.write_session_trace(session_id, "context_compiled", planner) services.traces.write_tool_events(session_id, "[]") services.traces.write_inference_events(session_id, util.json_obj2("status", json.str("planned"), "adapter_inventory", json.raw(services.adapters.list_json()))) services.traces.write_memory_diff(session_id, util.json_obj2("selected_memory", json.raw(selected_memory), "workspace_id", json.str(workspace_id))) return frame
+}
