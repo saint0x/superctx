@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 import json
 import os
+import subprocess
 import sys
 import time
-import urllib.parse
 import urllib.request
 from pathlib import Path
-import subprocess
 
 
 ROOT = Path("/Users/deepsaint/Desktop/superctx")
@@ -92,38 +91,50 @@ def calc(expr: str) -> dict:
     safe = expr.replace(" ", "")
     allowed = set("0123456789+-*/().%")
     if any(ch not in allowed for ch in safe):
-        return {"status": "error", "message": "unsupported_expression"}
+        return {"status": "error", "message": "unsupported_expression", "authoritative": False}
     try:
         value = eval(safe, {"__builtins__": {}}, {})
     except Exception as exc:
-        return {"status": "error", "message": str(exc)}
-    return {"status": "ok", "expr": expr, "value": value}
+        return {"status": "error", "message": str(exc), "authoritative": False}
+    return {"status": "ok", "expr": expr, "value": value, "authoritative": True, "result_kind": "exact_value"}
 
 
 def aegis_health() -> dict:
-    return get_json(f"{AEGIS_BASE}/healthz", timeout=15)
+    payload = get_json(f"{AEGIS_BASE}/healthz", timeout=15)
+    payload["authoritative"] = True
+    payload["result_kind"] = "health"
+    return payload
+
+
+def aegis_manifest() -> dict:
+    try:
+        payload = get_json(f"{AEGIS_BASE}/manifest", timeout=15)
+        return {"status": "ok", "manifest": payload, "authoritative": True, "result_kind": "route_manifest"}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc), "authoritative": False}
 
 
 def aegis_navigate(url: str) -> dict:
-    return post_json(f"{AEGIS_BASE}/navigate", {"url": url}, timeout=45)
+    payload = post_json(f"{AEGIS_BASE}/navigate", {"url": url}, timeout=45)
+    if isinstance(payload, dict):
+        payload["authoritative"] = True
+        payload["result_kind"] = "navigation"
+        return payload
+    return {"status": "ok", "payload": payload, "authoritative": True, "result_kind": "navigation"}
 
 
-def aegis_execute(commands: list) -> dict:
-    return post_json(f"{AEGIS_BASE}/execute", {"commands": commands}, timeout=45)
+def aegis_execute_eval(code: str) -> dict:
+    payload = post_json(f"{AEGIS_BASE}/execute", {"commands": [{"type": "eval", "code": code}]}, timeout=45)
+    return {"status": "ok", "payload": payload, "authoritative": True, "result_kind": "dom_extract"}
 
 
-def aegis_search(query: str) -> dict:
-    target = "https://duckduckgo.com/?q=" + urllib.parse.quote(query)
-    nav = aegis_navigate(target)
-    time.sleep(2)
-    extract = aegis_execute(
-        [{"type": "eval", "code": "document.body ? document.body.innerText.slice(0, 5000) : ''"}]
-    )
-    return {"status": "ok", "query": query, "navigate": nav, "extract": extract}
+def aegis_dom() -> dict:
+    payload = get_json(f"{AEGIS_BASE}/dom", timeout=30)
+    return {"status": "ok", "dom": payload, "authoritative": True, "result_kind": "dom_snapshot"}
 
 
-TOOLS = [
-    {
+ALL_TOOLS = {
+    "list_dir": {
         "type": "function",
         "function": {
             "name": "list_dir",
@@ -135,7 +146,7 @@ TOOLS = [
             },
         },
     },
-    {
+    "read_file": {
         "type": "function",
         "function": {
             "name": "read_file",
@@ -150,7 +161,7 @@ TOOLS = [
             },
         },
     },
-    {
+    "grep_text": {
         "type": "function",
         "function": {
             "name": "grep_text",
@@ -165,11 +176,11 @@ TOOLS = [
             },
         },
     },
-    {
+    "calc": {
         "type": "function",
         "function": {
             "name": "calc",
-            "description": "Evaluate a small arithmetic expression.",
+            "description": "Evaluate a small arithmetic expression. The returned value is authoritative.",
             "parameters": {
                 "type": "object",
                 "properties": {"expr": {"type": "string"}},
@@ -177,7 +188,7 @@ TOOLS = [
             },
         },
     },
-    {
+    "aegis_health": {
         "type": "function",
         "function": {
             "name": "aegis_health",
@@ -185,19 +196,47 @@ TOOLS = [
             "parameters": {"type": "object", "properties": {}},
         },
     },
-    {
+    "aegis_manifest": {
         "type": "function",
         "function": {
-            "name": "aegis_search",
-            "description": "Search the live web through Aegis and return extracted visible text.",
+            "name": "aegis_manifest",
+            "description": "Return the Aegis route manifest when available. Prefer this for exact endpoint discovery.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    "aegis_navigate": {
+        "type": "function",
+        "function": {
+            "name": "aegis_navigate",
+            "description": "Navigate the Aegis browser to a URL.",
             "parameters": {
                 "type": "object",
-                "properties": {"query": {"type": "string"}},
-                "required": ["query"],
+                "properties": {"url": {"type": "string"}},
+                "required": ["url"],
             },
         },
     },
-]
+    "aegis_execute_eval": {
+        "type": "function",
+        "function": {
+            "name": "aegis_execute_eval",
+            "description": "Execute DOM extraction JavaScript in the current Aegis page and return the exact result.",
+            "parameters": {
+                "type": "object",
+                "properties": {"code": {"type": "string"}},
+                "required": ["code"],
+            },
+        },
+    },
+    "aegis_dom": {
+        "type": "function",
+        "function": {
+            "name": "aegis_dom",
+            "description": "Return a DOM snapshot from the current Aegis page.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+}
 
 
 def call_tool(name: str, arguments: dict) -> dict:
@@ -211,80 +250,141 @@ def call_tool(name: str, arguments: dict) -> dict:
         return calc(arguments["expr"])
     if name == "aegis_health":
         return aegis_health()
-    if name == "aegis_search":
-        return aegis_search(arguments["query"])
-    return {"status": "error", "message": f"unknown_tool: {name}"}
+    if name == "aegis_manifest":
+        return aegis_manifest()
+    if name == "aegis_navigate":
+        return aegis_navigate(arguments["url"])
+    if name == "aegis_execute_eval":
+        return aegis_execute_eval(arguments["code"])
+    if name == "aegis_dom":
+        return aegis_dom()
+    return {"status": "error", "message": f"unknown_tool: {name}", "authoritative": False}
 
 
 TASKS = [
     {
         "id": "calc_tool",
+        "mode": "exact",
         "prompt": "Use the calculator tool and give the final numeric answer for 183 * 27.",
-        "expects": ["4941"],
+        "allowed_tools": ["calc"],
         "must_use": ["calc"],
+        "exact_output": "4941",
     },
     {
         "id": "fzl_manual",
-        "prompt": "In FZL, where should a repository-specific build command live, and which brain tool should store it durably? Answer briefly.",
+        "mode": "engineering",
+        "prompt": "In FZL, where should a repository-specific build command live, and which brain tool should store it durably? Answer briefly and stay grounded in the system prompt.",
+        "allowed_tools": [],
         "expects": ["workspace", "brain.remember"],
     },
     {
         "id": "repo_inspect",
-        "prompt": "Inspect /Users/deepsaint/Desktop/superctx and name two concrete limitations that still keep superctx from being full-spec production. Use only local file tools unless you truly need freshness, and include file references when relevant.",
-        "expects": ["SQLite", "adapter", "src/services", "src/runtime"],
+        "mode": "local_inspect",
+        "prompt": "Inspect /Users/deepsaint/Desktop/superctx and name two concrete limitations that still keep superctx from being full-spec production. Use only local file tools and include file references.",
+        "allowed_tools": ["list_dir", "read_file", "grep_text"],
         "must_use": ["list_dir", "read_file"],
+        "expects": ["SQLite", "adapter", "/Users/deepsaint/Desktop/superctx/src/services", "/Users/deepsaint/Desktop/superctx/src/runtime"],
     },
     {
         "id": "coding_agent_local",
-        "prompt": "You are acting as a coding agent on /Users/deepsaint/Desktop/superctx. Identify one concrete architectural weakness in the current implementation and one targeted next step to improve it. Use local file tools and cite exact repo paths.",
-        "expects": ["superctx", "src/", "path", "runtime"],
+        "mode": "local_inspect",
+        "prompt": "You are acting as a coding agent on /Users/deepsaint/Desktop/superctx. Identify one concrete architectural weakness in the current implementation and one targeted next step to improve it. Use only local file tools and cite exact repo paths.",
+        "allowed_tools": ["list_dir", "read_file", "grep_text"],
         "must_use": ["list_dir", "read_file"],
+        "expects": ["superctx", "/Users/deepsaint/Desktop/superctx/src/", "runtime", "adapter"],
     },
     {
         "id": "distributed_systems",
+        "mode": "engineering",
         "prompt": "You are reviewing a Raft-like service where duplicate client writes appear after leader failover. Give the most likely causes and a remediation checklist. Be concrete and systems-focused.",
+        "allowed_tools": [],
         "expects": ["idempot", "term", "log", "commit", "retry"],
     },
     {
         "id": "gpu_programming",
+        "mode": "engineering",
         "prompt": "A CUDA kernel is memory-bandwidth bound and suffers from warp divergence in boundary checks. Give a concise optimization plan an experienced GPU programmer would use.",
+        "allowed_tools": [],
         "expects": ["coales", "occup", "shared", "diverg", "profile"],
     },
     {
         "id": "live_search",
-        "prompt": "Use live web search via Aegis to find what endpoints Aegis exposes for navigation and DOM inspection, then answer with the exact route paths only.",
+        "mode": "live_search",
+        "prompt": "Use the exact Aegis route surfaces to find what endpoints Aegis exposes for navigation and DOM inspection, then answer with the exact route paths only.",
+        "allowed_tools": ["aegis_health", "aegis_manifest", "aegis_navigate", "aegis_execute_eval", "aegis_dom"],
+        "must_use": ["aegis_health"],
         "expects": ["/navigate", "/dom", "/events"],
-        "must_use": ["aegis_search"],
     },
 ]
+
+
+def policy_message(task: dict) -> str:
+    if task["mode"] == "exact":
+        return (
+            "Task mode: exact.\n"
+            "Use only the allowed tools.\n"
+            "If an authoritative tool returns a value, your final answer must equal that value exactly.\n"
+            "Do not add explanation unless asked."
+        )
+    if task["mode"] == "local_inspect":
+        return (
+            "Task mode: local_inspect.\n"
+            "Use only the allowed local tools.\n"
+            "Do not use freshness-seeking behavior.\n"
+            "Every concrete claim must be grounded in local evidence and cite exact local paths."
+        )
+    if task["mode"] == "live_search":
+        return (
+            "Task mode: live_search.\n"
+            "Prefer exact structured extraction tools over broad summaries.\n"
+            "Return only the exact route paths requested.\n"
+            "Do not invent routes."
+        )
+    return (
+        "Task mode: engineering.\n"
+        "Stay concise and grounded.\n"
+        "Separate observed facts from inference when evidence is limited."
+    )
+
+
+def build_tools(task: dict) -> list:
+    return [ALL_TOOLS[name] for name in task.get("allowed_tools", [])]
+
+
+def authoritative_requirement(task: dict, tool_results: list) -> str | None:
+    if task["mode"] != "exact":
+        return None
+    for item in reversed(tool_results):
+        result = item["result"]
+        if result.get("authoritative") and "value" in result:
+            return str(result["value"])
+    return None
 
 
 def run_task(task: dict) -> dict:
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": policy_message(task)},
         {
             "role": "user",
-            "content": (
-                task["prompt"]
-                + "\n\nYou may use tools. Be accurate, explicit about uncertainty, and cite concrete local paths or route names when possible."
-            ),
+            "content": task["prompt"],
         },
     ]
+    tools = build_tools(task)
     used_tools = []
+    tool_results = []
     final_text = ""
 
-    for _ in range(8):
-        response = post_json(
-            f"{MODEL_BASE}/v1/chat/completions",
-            {
-                "model": MODEL_NAME,
-                "messages": messages,
-                "tools": TOOLS,
-                "tool_choice": "auto",
-                "temperature": 0.2,
-            },
-            timeout=90,
-        )
+    for _ in range(4):
+        payload = {
+            "model": MODEL_NAME,
+            "messages": messages,
+            "temperature": 0.1,
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+        response = post_json(f"{MODEL_BASE}/v1/chat/completions", payload, timeout=90)
         choice = response["choices"][0]["message"]
         messages.append(choice)
         tool_calls = choice.get("tool_calls") or []
@@ -292,8 +392,12 @@ def run_task(task: dict) -> dict:
             for call in tool_calls:
                 name = call["function"]["name"]
                 args = json.loads(call["function"]["arguments"] or "{}")
+                if task.get("allowed_tools") is not None and name not in task.get("allowed_tools", []):
+                    result = {"status": "error", "message": f"tool_not_allowed: {name}", "authoritative": True}
+                else:
+                    result = call_tool(name, args)
                 used_tools.append(name)
-                result = call_tool(name, args)
+                tool_results.append({"name": name, "arguments": args, "result": result})
                 messages.append(
                     {
                         "role": "tool",
@@ -303,20 +407,27 @@ def run_task(task: dict) -> dict:
                     }
                 )
             continue
-        final_text = choice.get("content", "")
+        final_text = (choice.get("content") or "").strip()
         break
 
     lowered = final_text.lower()
     expected_hits = [needle for needle in task.get("expects", []) if needle.lower() in lowered]
     must_use = task.get("must_use", [])
     tool_ok = all(tool in used_tools for tool in must_use)
-    status = "pass" if len(expected_hits) == len(task.get("expects", [])) and tool_ok else "review"
+    exact_required = authoritative_requirement(task, tool_results)
+    exact_ok = exact_required is None or final_text == exact_required
+    expect_ok = len(expected_hits) == len(task.get("expects", []))
+    status = "pass" if tool_ok and exact_ok and expect_ok else "review"
     return {
         "task": task["id"],
+        "mode": task["mode"],
         "status": status,
         "used_tools": used_tools,
+        "tool_results": tool_results,
         "expected_hits": expected_hits,
         "missing_expectations": [x for x in task.get("expects", []) if x not in expected_hits],
+        "exact_required": exact_required,
+        "exact_ok": exact_ok,
         "final_text": final_text,
         "messages": messages,
     }
@@ -336,10 +447,14 @@ def main() -> int:
         except Exception as exc:
             result = {
                 "task": task["id"],
+                "mode": task["mode"],
                 "status": "error",
                 "used_tools": [],
+                "tool_results": [],
                 "expected_hits": [],
                 "missing_expectations": task.get("expects", []),
+                "exact_required": None,
+                "exact_ok": False,
                 "final_text": "",
                 "error": str(exc),
                 "messages": [],

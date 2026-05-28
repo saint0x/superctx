@@ -7,23 +7,50 @@ fn link_json(id: str, from_id: str, relation: str, to_id: str, created_at: str) 
 fn session_json(session_id: str, workspace_id: str, goal: str, request: str, state: str, frame_path: str, updated_at: str) -> str {
     let payload = map.new() discard map.set(payload, "session_id", json.str(session_id)) discard map.set(payload, "workspace_id", json.str(workspace_id)) discard map.set(payload, "goal", json.str(goal)) discard map.set(payload, "request", json.str(request)) discard map.set(payload, "state", json.str(state)) discard map.set(payload, "frame_path", json.str(frame_path)) discard map.set(payload, "updated_at", json.str(updated_at)) return json.object(payload)
 }
-fn registers_json(goal: str, active_file: str, workspace_id: str, execution_mode: str) -> str {
-    let payload = map.new() discard map.set(payload, "goal", json.str(goal)) discard map.set(payload, "active_file", json.str(active_file)) discard map.set(payload, "workspace_id", json.str(workspace_id)) discard map.set(payload, "execution_mode", json.str(execution_mode)) return json.object(payload)
+fn string_list_json(a: str, b: str, c: str, d: str) -> str {
+    let items = list.new() if a != "" {
+        discard list.push(items, json.str(a))
+    }
+    if b != "" {
+        discard list.push(items, json.str(b))
+    }
+    if c != "" {
+        discard list.push(items, json.str(c))
+    }
+    if d != "" {
+        discard list.push(items, json.str(d))
+    }
+    return json.array(items)
 }
-fn planner_summary_json(selected_count: str, pinned_count: str, request: str) -> str {
-    let payload = map.new() discard map.set(payload, "selected_count", json.str(selected_count)) discard map.set(payload, "pinned_count", json.str(pinned_count)) discard map.set(payload, "request", json.str(request)) return json.object(payload)
+fn protocol_policy_json(task_mode: str, answer_contract: str, grounding_contract: str, must_cite_paths: str, must_obey_tool_outputs: str, max_tool_roundtrips: str, allowed_tool_classes_json: str, blocked_tool_classes_json: str) -> str {
+    let payload = map.new() discard map.set(payload, "task_mode", json.str(task_mode)) discard map.set(payload, "answer_contract", json.str(answer_contract)) discard map.set(payload, "grounding_contract", json.str(grounding_contract)) discard map.set(payload, "must_cite_paths", json.str(must_cite_paths)) discard map.set(payload, "must_obey_tool_outputs", json.str(must_obey_tool_outputs)) discard map.set(payload, "max_tool_roundtrips", json.str(max_tool_roundtrips)) discard map.set(payload, "allowed_tool_classes", json.raw(allowed_tool_classes_json)) discard map.set(payload, "blocked_tool_classes", json.raw(blocked_tool_classes_json)) return json.object(payload)
 }
-fn frame_json(system_instructions: str, registers_json: str, stack_json: str, selected_memory_json: str, artifacts_json: str, tool_schemas_json: str, user_request: str, planner_json: str) -> str {
-    let payload = map.new() discard map.set(payload, "system_instructions", json.str(system_instructions)) discard map.set(payload, "registers", json.raw(registers_json)) discard map.set(payload, "stack", json.raw(stack_json)) discard map.set(payload, "selected_memory", json.raw(selected_memory_json)) discard map.set(payload, "artifacts", json.raw(artifacts_json)) discard map.set(payload, "tool_schemas", json.raw(tool_schemas_json)) discard map.set(payload, "user_request", json.str(user_request)) discard map.set(payload, "planner", json.raw(planner_json)) return json.object(payload)
+fn registers_json(goal: str, active_file: str, workspace_id: str, execution_mode: str, task_mode: str, answer_contract: str, allowed_tool_classes_json: str) -> str {
+    let payload = map.new() discard map.set(payload, "goal", json.str(goal)) discard map.set(payload, "active_file", json.str(active_file)) discard map.set(payload, "workspace_id", json.str(workspace_id)) discard map.set(payload, "execution_mode", json.str(execution_mode)) discard map.set(payload, "task_mode", json.str(task_mode)) discard map.set(payload, "answer_contract", json.str(answer_contract)) discard map.set(payload, "allowed_tool_classes", json.raw(allowed_tool_classes_json)) return json.object(payload)
+}
+fn planner_summary_json(selected_count: str, pinned_count: str, request: str, mode_reason: str, evidence_plan: str) -> str {
+    let payload = map.new() discard map.set(payload, "selected_count", json.str(selected_count)) discard map.set(payload, "pinned_count", json.str(pinned_count)) discard map.set(payload, "request", json.str(request)) discard map.set(payload, "mode_reason", json.str(mode_reason)) discard map.set(payload, "evidence_plan", json.str(evidence_plan)) return json.object(payload)
+}
+fn frame_json(system_instructions: str, registers_json: str, stack_json: str, selected_memory_json: str, artifacts_json: str, tool_schemas_json: str, user_request: str, planner_json: str, protocol_json: str) -> str {
+    let payload = map.new() discard map.set(payload, "system_instructions", json.str(system_instructions)) discard map.set(payload, "registers", json.raw(registers_json)) discard map.set(payload, "stack", json.raw(stack_json)) discard map.set(payload, "selected_memory", json.raw(selected_memory_json)) discard map.set(payload, "artifacts", json.raw(artifacts_json)) discard map.set(payload, "tool_schemas", json.raw(tool_schemas_json)) discard map.set(payload, "user_request", json.str(user_request)) discard map.set(payload, "planner", json.raw(planner_json)) discard map.set(payload, "protocol", json.raw(protocol_json)) return json.object(payload)
 }
 fn trace_event_json(event: str, status: str, session_id: str, details_json: str, recorded_at: str) -> str {
     let payload = map.new() discard map.set(payload, "event", json.str(event)) discard map.set(payload, "status", json.str(status)) discard map.set(payload, "session_id", json.str(session_id)) discard map.set(payload, "details", json.raw(details_json)) discard map.set(payload, "recorded_at", json.str(recorded_at)) return json.object(payload)
 }
 fn adapter_json(name: str, family: str, transport: str, status: str) -> str {
-    let payload = map.new() discard map.set(payload, "name", json.str(name)) discard map.set(payload, "family", json.str(family)) discard map.set(payload, "transport", json.str(transport)) discard map.set(payload, "status", json.str(status)) discard map.set(payload, "interface", json.str("model_adapter_v1")) return json.object(payload)
+    let payload = map.new() discard map.set(payload, "name", json.str(name)) discard map.set(payload, "family", json.str(family)) discard map.set(payload, "transport", json.str(transport)) discard map.set(payload, "status", json.str(status)) discard map.set(payload, "interface", json.str("model_adapter_v2")) return json.object(payload)
 }
-fn tool_schema_json(name: str, description: str, input_schema_json: str) -> str {
-    let payload = map.new() discard map.set(payload, "name", json.str(name)) discard map.set(payload, "description", json.str(description)) discard map.set(payload, "input_schema", json.raw(input_schema_json)) return json.object(payload)
+fn adapter_runtime_json(name: str, family: str, transport: str, status: str, endpoint: str, model: str) -> str {
+    let payload = map.new() discard map.set(payload, "name", json.str(name)) discard map.set(payload, "family", json.str(family)) discard map.set(payload, "transport", json.str(transport)) discard map.set(payload, "status", json.str(status)) discard map.set(payload, "endpoint", json.str(endpoint)) discard map.set(payload, "model", json.str(model)) discard map.set(payload, "interface", json.str("model_adapter_v3")) return json.object(payload)
+}
+fn tool_schema_json(name: str, description: str, input_schema_json: str, tool_class: str, result_kind: str, authority: str, mutation_scope: str) -> str {
+    let payload = map.new() discard map.set(payload, "name", json.str(name)) discard map.set(payload, "description", json.str(description)) discard map.set(payload, "input_schema", json.raw(input_schema_json)) discard map.set(payload, "tool_class", json.str(tool_class)) discard map.set(payload, "result_kind", json.str(result_kind)) discard map.set(payload, "authority", json.str(authority)) discard map.set(payload, "mutation_scope", json.str(mutation_scope)) return json.object(payload)
+}
+fn completion_json(session_id: str, adapter: str, status: str, model: str, content: str, raw_response_path: str, recorded_at: str) -> str {
+    let payload = map.new() discard map.set(payload, "session_id", json.str(session_id)) discard map.set(payload, "adapter", json.str(adapter)) discard map.set(payload, "status", json.str(status)) discard map.set(payload, "model", json.str(model)) discard map.set(payload, "content", json.str(content)) discard map.set(payload, "raw_response_path", json.str(raw_response_path)) discard map.set(payload, "recorded_at", json.str(recorded_at)) return json.object(payload)
+}
+fn validation_json(status: str, mode: str, reason: str, expected: str, observed: str, repaired: str, recorded_at: str) -> str {
+    let payload = map.new() discard map.set(payload, "status", json.str(status)) discard map.set(payload, "mode", json.str(mode)) discard map.set(payload, "reason", json.str(reason)) discard map.set(payload, "expected", json.str(expected)) discard map.set(payload, "observed", json.str(observed)) discard map.set(payload, "repaired", json.str(repaired)) discard map.set(payload, "recorded_at", json.str(recorded_at)) return json.object(payload)
 }
 fn snapshot_json(snapshot_id: str, memory_index_text: str, memory_records_text: str, links_text: str, created_at: str) -> str {
     let payload = map.new() discard map.set(payload, "snapshot_id", json.str(snapshot_id)) discard map.set(payload, "memory_index_text", json.str(memory_index_text)) discard map.set(payload, "memory_records_text", json.str(memory_records_text)) discard map.set(payload, "links_text", json.str(links_text)) discard map.set(payload, "created_at", json.str(created_at)) return json.object(payload)

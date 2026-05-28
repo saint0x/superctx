@@ -10,12 +10,34 @@ test "det_memory_roundtrip" {
     let pinned = services.brain.set_pin(memory_id, "true") if json.get_str(json.parse(pinned), "pinned") != "true" {
         checkpoint()
     }
-    let frame = runtime.ask("test-session", "workspace", "scoped memory") if json.get_str(json.parse(frame), "user_request") == "" {
+    let frame = runtime.ask("test-session", "workspace", "inspect the repo with local file tools and cite exact repo paths") let parsed = json.parse(frame) if json.get_str(parsed, "user_request") == "" {
+        checkpoint()
+    }
+    if str.contains(frame, "\"task_mode\":\"local_inspect\"") == 0 {
+        checkpoint()
+    }
+    if str.contains(frame, "\"must_cite_paths\":\"true\"") == 0 {
         checkpoint()
     }
 }
 test "det_snapshot_restore" {
     runtime.boot() discard services.brain.remember("global", "fact", "user prefers deterministic traces", 7, 8, 0, "persistent", "test", "workspace", "snap-session") let snapshot = services.brain.snapshot() let snapshot_id = json.get_str(json.parse(snapshot), "snapshot_id") let restored = services.brain.restore(snapshot_id) if json.get_str(json.parse(restored), "status") != "ok" {
+        checkpoint()
+    }
+}
+test "det_deterministic_completion" {
+    runtime.boot() let result = runtime.complete("adapter-session", "workspace", "summarize the current request") if str.contains(result, "\"adapter\":\"DeterministicAdapter\"") == 0 {
+        checkpoint()
+    }
+    if str.contains(result, "\"status\":\"ok\"") == 0 {
+        checkpoint()
+    }
+}
+test "det_exact_validation" {
+    runtime.boot() let result = runtime.complete("exact-session", "workspace", "give the exact numeric answer for 183 * 27") if str.contains(result, "\"status\":\"ok\"") == 0 {
+        checkpoint()
+    }
+    if str.contains(result, "\"content\":\"4941\"") == 0 {
         checkpoint()
     }
 }

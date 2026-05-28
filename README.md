@@ -4,13 +4,14 @@ deterministic context runtime for ai agents, implemented in fzy.
 
 ## what it is
 
-`superctx` is a json-first v0.1 implementation of the `SPEC.md` design:
+`superctx` is a production-leaning `SPEC.md` implementation in fzy:
 
 - persistent scoped memory
 - explicit brain operations
 - deterministic context-frame assembly
 - traceable and replayable runtime artifacts
-- adapter and tool metadata surfaces
+- real adapter execution surfaces
+- in-runtime answer validation and repair
 - local evaluation harness for tool-using agents
 
 it is not a model, chatbot, or workflow engine.
@@ -22,16 +23,18 @@ implemented now:
 - global, workspace, session, and short/long-term memory modeling
 - explicit memory operations in `src/services/brain.fzy`
 - context planning in `src/services/planner.fzy`
-- file-backed state and trace storage in `src/services/store.fzy`
-- adapter and tool schema surfaces
+- sqlite-backed state in `src/services/store.fzy` under `.brain/brain.db`
+- sqlite fts-backed retrieval with heuristic fallback
+- adapter runtime execution in `src/services/adapters.fzy`
+- in-runtime validation / rejection / one-pass repair in `src/services/validator.fzy`
 - cli entrypoints and basic http routing
 - deterministic fozzy validation and live local-model evaluation harness
 
 not implemented yet:
 
-- sqlite-backed storage
-- real provider adapter execution inside the fzy runtime
-- closed-loop tool orchestration and runtime validation around live model calls
+- semantic retrieval via embeddings or rerankers
+- broader live-burned provider validation beyond the openai-compatible path
+- richer typed validation policies beyond the current rule-based guardrails
 
 ## layout
 
@@ -58,7 +61,8 @@ the arena harness was run against a local openai-compatible endpoint plus aegis-
 
 main result:
 
-- the runtime is in decent shape for a scoped v0.1
-- the tested local model was not yet reliable enough to trust as a high-stakes systems or coding agent
+- the runtime is in good shape for this scope
+- the tested local model was the dominant failure source, not the runtime
+- the runtime now makes that distinction explicit by constraining tools, validating outputs, and tracing failures cleanly
 
 see `arena/LIVE_EVAL_REPORT.md`.

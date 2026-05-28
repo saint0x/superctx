@@ -131,43 +131,13 @@ fn maybe_push_ranked(results: ListHandle, parsed: JsonHandle, request: str, work
 }
 
 fn query_json(request: str, workspace_id: str, session_id: str, limit: i32) -> str {
-    let ids_text = services.store.memory_ids_text();
-    let results = list.new();
-    let mut remaining = ids_text;
-    while remaining != "" {
-        let current_id = util.first_line(remaining);
-        if current_id != "" {
-            let raw = services.store.load_memory(current_id);
-            if raw != "" {
-                let parsed = json.parse(raw);
-                discard maybe_push_ranked(results, parsed, request, workspace_id, session_id, 10);
-                if list.len(results) >= limit {
-                    break
-                }
-            }
-        }
-        remaining = util.drop_first_line(remaining);
-    }
-    return json.array(results)
+    return services.store.query_memory_json(request, workspace_id, session_id, limit)
+}
+fn query_ids_text(request: str, workspace_id: str, session_id: str, limit: i32) -> str {
+    return services.store.query_memory_ids_text(request, workspace_id, session_id, limit)
 }
 fn pin_count(selected_json: str) -> str {
-    if selected_json == "[]" {
-        return "0"
-    }
-    let parsed = json.parse(selected_json);
-    let mut idx: i32 = 0;
-    let mut count: i32 = 0;
-    while idx < 8 {
-        let item = json.get(parsed, str.from_i32(idx));
-        let raw = json.get_str(item, "raw");
-        if raw != "" {
-            if memory_pinned(json.parse(raw)) == "true" {
-                count += 1
-            }
-        }
-        idx += 1
-    }
-    return str.from_i32(count)
+    return str.from_i32(util.count_occurrences(selected_json, "\"pinned\":\"true\""))
 }
 fn link(from_id: str, relation: str, to_id: str) -> str {
     let link_id = services.store.next_link_id();
@@ -231,8 +201,9 @@ fn restore(snapshot_id: str) -> str {
     let memory_index_text = json.get_str(parsed, "memory_index_text");
     let memory_records_text = json.get_str(parsed, "memory_records_text");
     let links_text = json.get_str(parsed, "links_text");
-    fs.write_file(services.store.memory_index_path(), memory_index_text);
-    fs.write_file(services.store.links_index_path(), "");
+    discard memory_index_text;
+    discard services.store.clear_memory_records();
+    discard services.store.clear_link_records();
     let mut remaining = memory_records_text;
     while remaining != "" {
         let line = util.first_line(remaining);
@@ -248,26 +219,23 @@ fn restore(snapshot_id: str) -> str {
         if line != "" {
             let link_parsed = json.parse(line);
             let link_id = json.get_str(link_parsed, "id");
-            services.store.save_link(link_id, line);
-            services.store.append_link_id(link_id)
+            services.store.save_link(link_id, line)
         }
         remaining_links = util.drop_first_line(remaining_links)
     }
     return util.json_obj2("status", json.str("ok"), "snapshot_id", json.str(snapshot_id))
 }
 fn compact(workspace_id: str, session_id: str, request: str) -> str {
-    let selected = query_json(request, workspace_id, session_id, 3);
+    let selected_ids = query_ids_text(request, workspace_id, session_id, 3);
     let summary = remember("workspace", "summary", str.concat("Compacted context for request: ", request), 9, 9, 1, "persistent", "brain.compact", workspace_id, session_id);
-    let parsed = json.parse(selected);
-    let mut idx: i32 = 0;
-    while idx < 3 {
-        let item = json.get(parsed, str.from_i32(idx));
-        let raw = json.get_str(item, "raw");
-        if raw != "" {
-            let source = json.parse(raw);
-            discard link(json.get_str(json.parse(summary), "id"), "derived_from", memory_id(source))
+    let mut remaining = selected_ids;
+    let summary_id = json.get_str(json.parse(summary), "id");
+    while remaining != "" {
+        let current_id = util.first_line(remaining);
+        if current_id != "" {
+            discard link(summary_id, "derived_from", current_id)
         }
-        idx += 1
+        remaining = util.drop_first_line(remaining)
     }
     return summary
 }

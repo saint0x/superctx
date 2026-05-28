@@ -21,6 +21,7 @@ fn print_help() -> i32 {
     util.println("  snapshot");
     util.println("  restore <snapshot_id>");
     util.println("  frame <session_id> <workspace_id> <request>");
+    util.println("  complete <session_id> <workspace_id> <request>");
     util.println("  replay <session_id>");
     util.println("  serve");
     return 0
@@ -77,6 +78,10 @@ fn dispatch() -> i32 {
     if cmd == "frame" {
         discard runtime.start_session(arg(2), arg(3), arg(4));
         return util.println(runtime.ask(arg(2), arg(3), arg(4)))
+    }
+    if cmd == "complete" {
+        discard runtime.start_session(arg(2), arg(3), arg(4));
+        return util.println(runtime.complete(arg(2), arg(3), arg(4)))
     }
     if cmd == "replay" {
         return util.println(runtime.replay_json(arg(2)))

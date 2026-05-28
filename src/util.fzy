@@ -84,6 +84,55 @@ fn count_lines(text_value: str) -> i32 {
     }
     return count
 }
+fn count_occurrences(text_value: str, needle: str) -> i32 {
+    if text_value == "" {
+        return 0
+    }
+    if needle == "" {
+        return 0
+    }
+    let mut count: i32 = 0;
+    let mut idx: i32 = 0;
+    let last = str.len(text_value) - str.len(needle);
+    while idx <= last {
+        if str.slice(text_value, idx, idx + str.len(needle)) == needle {
+            count += 1
+            idx += str.len(needle)
+        } else {
+            idx += 1
+        }
+    }
+    return count
+}
+fn is_digit(ch: str) -> i32 {
+    if ch == "0" { return 1 }
+    if ch == "1" { return 1 }
+    if ch == "2" { return 1 }
+    if ch == "3" { return 1 }
+    if ch == "4" { return 1 }
+    if ch == "5" { return 1 }
+    if ch == "6" { return 1 }
+    if ch == "7" { return 1 }
+    if ch == "8" { return 1 }
+    if ch == "9" { return 1 }
+    return 0
+}
+fn is_math_token(ch: str) -> i32 {
+    if is_digit(ch) == 1 { return 1 }
+    if ch == " " { return 1 }
+    if ch == "+" { return 1 }
+    if ch == "-" { return 1 }
+    if ch == "*" { return 1 }
+    if ch == "/" { return 1 }
+    if ch == "%" { return 1 }
+    if ch == "(" { return 1 }
+    if ch == ")" { return 1 }
+    if ch == "." { return 1 }
+    return 0
+}
+fn strip_chars(text_value: str, remove_a: str, remove_b: str, remove_c: str, remove_d: str) -> str {
+    return str.replace(str.replace(str.replace(str.replace(text_value, remove_a, ""), remove_b, ""), remove_c, ""), remove_d, "")
+}
 fn println(text: str) -> i32 {
     return term.print_line(text)
 }

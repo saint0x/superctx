@@ -4,12 +4,94 @@ fn default_system_prompt() -> str {
         "You are operating inside FZL. Memory is external, scoped, durable, and must be mutated only through explicit brain tools.",
     )
 }
-fn default_stack_json(request: str) -> str {
-    let stack = list.new() discard list.push(stack, json.str(str.concat("request=", request))) discard list.push(stack, json.str("planner=deterministic")) discard list.push(stack, json.str("runtime=fzy")) return json.array(stack)
+fn mode_for_request(request: str) -> str {
+    if str.contains(request, "exact") == 1 || str.contains(request, "Exact") == 1 || str.contains(request, "numeric") == 1 || str.contains(request, "Numeric") == 1 || str.contains(request, "calculator") == 1 || str.contains(request, "Calculator") == 1 {
+        return "exact"
+    }
+    if str.contains(request, "local file") == 1 || str.contains(request, "Local file") == 1 || str.contains(request, "repo") == 1 || str.contains(request, "Repo") == 1 || str.contains(request, "repository") == 1 || str.contains(request, "Repository") == 1 || str.contains(request, "cite exact repo paths") == 1 || str.contains(request, "Cite exact repo paths") == 1 {
+        return "local_inspect"
+    }
+    if str.contains(request, "live web") == 1 || str.contains(request, "Live web") == 1 || str.contains(request, "latest docs") == 1 || str.contains(request, "Latest docs") == 1 || str.contains(request, "search online") == 1 || str.contains(request, "Search online") == 1 {
+        return "live_search"
+    }
+    return "engineering"
+}
+fn answer_contract(task_mode: str) -> str {
+    if task_mode == "exact" {
+        return "final answer must match the authoritative tool value exactly"
+    }
+    if task_mode == "local_inspect" {
+        return "final answer must cite concrete local paths and stay within local evidence"
+    }
+    if task_mode == "live_search" {
+        return "final answer must return only extracted routes or facts supported by live evidence"
+    }
+    return "final answer must be concise, grounded, and separate observed evidence from inference"
+}
+fn grounding_contract(task_mode: str) -> str {
+    if task_mode == "exact" {
+        return "do not paraphrase away deterministic tool outputs"
+    }
+    if task_mode == "local_inspect" {
+        return "prefer local file evidence and avoid freshness-seeking tools"
+    }
+    if task_mode == "live_search" {
+        return "prefer structured browser extraction over broad search summaries"
+    }
+    return "use local evidence first and mark speculation explicitly"
+}
+fn mode_reason(task_mode: str) -> str {
+    if task_mode == "exact" {
+        return "request asks for a deterministic exact answer"
+    }
+    if task_mode == "local_inspect" {
+        return "request asks for repository-grounded local inspection"
+    }
+    if task_mode == "live_search" {
+        return "request explicitly requires fresh live retrieval"
+    }
+    return "request is open-ended engineering analysis"
+}
+fn evidence_plan(task_mode: str) -> str {
+    if task_mode == "exact" {
+        return "use deterministic tools, then copy authoritative result into the final answer"
+    }
+    if task_mode == "local_inspect" {
+        return "inspect local files, then cite exact paths for every claim"
+    }
+    if task_mode == "live_search" {
+        return "use browser manifest or DOM extraction and return only exact extracted routes"
+    }
+    return "gather concrete evidence first, then infer only where needed"
+}
+fn default_stack_json(request: str, task_mode: str) -> str {
+    let stack = list.new() discard list.push(stack, json.str(str.concat("request=", request))) discard list.push(stack, json.str("planner=deterministic")) discard list.push(stack, json.str("runtime=fzy")) discard list.push(stack, json.str(str.concat("task_mode=", task_mode))) return json.array(stack)
 }
 fn default_artifacts_json(session_id: str) -> str {
     let payload = map.new() discard map.set(payload, "trace_dir", json.str(services.store.trace_dir(session_id))) discard map.set(payload, "frame_path", json.str(services.store.session_frame_path(session_id))) discard map.set(payload, "snapshot_dir", json.str(services.store.snapshots_dir())) return json.object(payload)
 }
 fn compile_frame(session_id: str, workspace_id: str, request: str) -> str {
-    services.store.ensure_session(session_id) let selected_memory = services.brain.query_json(request, workspace_id, session_id, 6) let registers = model.types.registers_json(request, "", workspace_id, "deterministic") let stack = default_stack_json(request) let planner = model.types.planner_summary_json(str.from_i32(util.count_lines(selected_memory)), services.brain.pin_count(selected_memory), request) let frame = model.types.frame_json(default_system_prompt(), registers, stack, selected_memory, default_artifacts_json(session_id), services.adapters.tool_schemas_json(), request, planner,) services.store.save_registers(session_id, registers) services.store.save_stack(session_id, stack) services.store.save_frame(session_id, frame) services.store.save_trace(session_id, "context.frame.json", frame) services.traces.write_session_trace(session_id, "context_compiled", planner) services.traces.write_tool_events(session_id, "[]") services.traces.write_inference_events(session_id, util.json_obj2("status", json.str("planned"), "adapter_inventory", json.raw(services.adapters.list_json()))) services.traces.write_memory_diff(session_id, util.json_obj2("selected_memory", json.raw(selected_memory), "workspace_id", json.str(workspace_id))) return frame
+    services.store.ensure_session(session_id)
+    let task_mode = mode_for_request(request)
+    let selected_memory = services.brain.query_json(request, workspace_id, session_id, 6)
+    let allowed_tool_classes = services.adapters.allowed_tool_classes_json(task_mode)
+    let blocked_tool_classes = services.adapters.blocked_tool_classes_json(task_mode)
+    let registers = model.types.registers_json(request, "", workspace_id, "deterministic", task_mode, answer_contract(task_mode), allowed_tool_classes)
+    let stack = default_stack_json(request, task_mode)
+    let planner = model.types.planner_summary_json(str.from_i32(util.count_lines(selected_memory)), services.brain.pin_count(selected_memory), request, mode_reason(task_mode), evidence_plan(task_mode))
+    let protocol = model.types.protocol_policy_json(task_mode, answer_contract(task_mode), grounding_contract(task_mode), util.bool_text(if task_mode == "local_inspect" {
+        1
+    } else {
+        0
+    }), "true", "4", allowed_tool_classes, blocked_tool_classes)
+    let frame = model.types.frame_json(default_system_prompt(), registers, stack, selected_memory, default_artifacts_json(session_id), services.adapters.tool_schemas_json(), request, planner, protocol)
+    services.store.save_registers(session_id, registers)
+    services.store.save_stack(session_id, stack)
+    services.store.save_frame(session_id, frame)
+    services.store.save_trace(session_id, "context.frame.json", frame)
+    services.traces.write_session_trace(session_id, "context_compiled", planner)
+    services.traces.write_tool_events(session_id, util.json_obj2("allowed_tool_classes", json.raw(allowed_tool_classes), "blocked_tool_classes", json.raw(blocked_tool_classes)))
+    services.traces.write_inference_events(session_id, util.json_obj3("status", json.str("planned"), "adapter_inventory", json.raw(services.adapters.list_json()), "protocol", json.raw(protocol)))
+    services.traces.write_memory_diff(session_id, util.json_obj3("selected_memory", json.raw(selected_memory), "workspace_id", json.str(workspace_id), "task_mode", json.str(task_mode)))
+    return frame
 }

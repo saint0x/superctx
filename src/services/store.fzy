@@ -1,17 +1,12 @@
 use core.fs;
 use core.storage;
 use core.time;
+use core.proc;
 fn workspace_root() -> str {
     return util.env_or("SUPERCTX_WORKSPACE_ROOT", "/Users/deepsaint/Desktop/superctx")
 }
 fn state_root() -> str {
-    return str.concat(workspace_root(), "/.superctx")
-}
-fn memory_dir() -> str {
-    return str.concat(state_root(), "/memory")
-}
-fn links_dir() -> str {
-    return str.concat(state_root(), "/links")
+    return str.concat(workspace_root(), "/.brain")
 }
 fn sessions_dir() -> str {
     return str.concat(state_root(), "/sessions")
@@ -22,26 +17,8 @@ fn traces_dir() -> str {
 fn snapshots_dir() -> str {
     return str.concat(state_root(), "/snapshots")
 }
-fn counters_dir() -> str {
-    return str.concat(state_root(), "/counters")
-}
-fn memory_index_path() -> str {
-    return str.concat(memory_dir(), "/memory_ids.log")
-}
-fn links_index_path() -> str {
-    return str.concat(links_dir(), "/links.log")
-}
-fn session_index_path() -> str {
-    return str.concat(sessions_dir(), "/session_ids.log")
-}
-fn counter_path(name: str) -> str {
-    return str.concat(str.concat(counters_dir(), "/"), str.concat(name, ".txt"))
-}
-fn memory_doc_path(memory_id: str) -> str {
-    return str.concat(str.concat(memory_dir(), "/"), str.concat(memory_id, ".json"))
-}
-fn link_doc_path(link_id: str) -> str {
-    return str.concat(str.concat(links_dir(), "/"), str.concat(link_id, ".json"))
+fn db_path() -> str {
+    return str.concat(state_root(), "/brain.db")
 }
 fn session_dir(session_id: str) -> str {
     return str.concat(str.concat(sessions_dir(), "/"), session_id)
@@ -70,99 +47,203 @@ fn snapshot_path(snapshot_id: str) -> str {
 fn now_text() -> str {
     return str.from_i32(time.now())
 }
-fn ensure_state() -> i32 {
-    fs.mkdir(state_root()) fs.mkdir(memory_dir()) fs.mkdir(links_dir()) fs.mkdir(sessions_dir()) fs.mkdir(traces_dir()) fs.mkdir(snapshots_dir()) fs.mkdir(counters_dir()) if fs.exists(memory_index_path()) == 0 {
-        fs.write_file(memory_index_path(), "")
-    }
-    if fs.exists(links_index_path()) == 0 {
-        fs.write_file(links_index_path(), "")
-    }
-    if fs.exists(session_index_path()) == 0 {
-        fs.write_file(session_index_path(), "")
-    }
+fn sql_quote(value: str) -> str {
+    return str.concat("'", str.concat(str.replace(value, "'", "''"), "'"))
+}
+fn sqlite_stdout(sql: str, fallback: str) -> str {
+    let env_map = proc.env_new()
+    let argv = proc.argv_new()
+    discard proc.argv_push(argv, "-batch")
+    discard proc.argv_push(argv, "-noheader")
+    discard proc.argv_push(argv, db_path())
+    discard proc.argv_push(argv, sql)
+    let handle = proc.spawn_cmd("/usr/bin/sqlite3", argv, env_map, "")
+    discard proc.wait(handle, 30000)
+    let stdout = str.trim(proc.stdout(handle))
+    let stderr = str.trim(proc.stderr(handle))
+    discard proc.close(handle)
+    if stderr != "" { return fallback }
+    if stdout == "" { return fallback }
+    return stdout
+}
+fn sqlite_exec(sql: str) -> i32 {
+    let env_map = proc.env_new()
+    let argv = proc.argv_new()
+    discard proc.argv_push(argv, "-batch")
+    discard proc.argv_push(argv, "-noheader")
+    discard proc.argv_push(argv, db_path())
+    discard proc.argv_push(argv, sql)
+    let handle = proc.spawn_cmd("/usr/bin/sqlite3", argv, env_map, "")
+    discard proc.wait(handle, 30000)
+    let stderr = str.trim(proc.stderr(handle))
+    discard proc.close(handle)
+    if stderr != "" { return 13 }
     return 0
 }
+fn schema_sql() -> str {
+    return "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; CREATE TABLE IF NOT EXISTS counters(name TEXT PRIMARY KEY, value INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY, scope TEXT NOT NULL, kind TEXT NOT NULL, content TEXT NOT NULL, importance INTEGER NOT NULL, confidence INTEGER NOT NULL, pinned TEXT NOT NULL, ttl TEXT NOT NULL, provenance TEXT NOT NULL, workspace_id TEXT NOT NULL, session_id TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, last_accessed_at TEXT NOT NULL, status TEXT NOT NULL, payload_json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS links(id TEXT PRIMARY KEY, from_id TEXT NOT NULL, relation TEXT NOT NULL, to_id TEXT NOT NULL, created_at TEXT NOT NULL, payload_json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sessions(session_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, goal TEXT NOT NULL, request TEXT NOT NULL, state TEXT NOT NULL, frame_path TEXT NOT NULL, updated_at TEXT NOT NULL, payload_json TEXT NOT NULL, registers_json TEXT NOT NULL, stack_json TEXT NOT NULL, frame_json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS snapshots(snapshot_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL); CREATE VIRTUAL TABLE IF NOT EXISTS memory_search USING fts5(memory_id UNINDEXED, content, kind, scope, workspace_id, session_id);"
+}
+fn ensure_state() -> i32 {
+    fs.mkdir(state_root()) fs.mkdir(sessions_dir()) fs.mkdir(traces_dir()) fs.mkdir(snapshots_dir()) discard sqlite_exec(schema_sql()) return 0
+}
+fn touch_session(session_id: str) -> i32 {
+    let values = str.concat(sql_quote(session_id), str.concat(", '', '', '', 'pending', ", str.concat(sql_quote(session_frame_path(session_id)), str.concat(", ", str.concat(sql_quote(now_text()), ", '{}', '{}', '[]', '{}'")))))
+    let sql = str.concat("INSERT INTO sessions(session_id, workspace_id, goal, request, state, frame_path, updated_at, payload_json, registers_json, stack_json, frame_json) VALUES(", str.concat(values, ")"))
+    return sqlite_exec(str.concat(sql, " ON CONFLICT(session_id) DO NOTHING;"))
+}
 fn ensure_session(session_id: str) -> i32 {
-    ensure_state() fs.mkdir(session_dir(session_id)) return 0
+    ensure_state() fs.mkdir(session_dir(session_id)) discard touch_session(session_id) return 0
 }
 fn next_counter(name: str) -> str {
-    ensure_state() let path = counter_path(name) let current_text = util.read_or(path, "0") let next_value = str.from_i32(util.parse_i32(current_text) + 1) fs.write_file(path, next_value) return next_value
+    ensure_state()
+    discard sqlite_exec(str.concat("INSERT INTO counters(name, value) VALUES(", str.concat(sql_quote(name), ", 0) ON CONFLICT(name) DO NOTHING;")))
+    discard sqlite_exec(str.concat("UPDATE counters SET value = value + 1 WHERE name = ", str.concat(sql_quote(name), ";")))
+    return sqlite_stdout(str.concat("SELECT CAST(value AS TEXT) FROM counters WHERE name = ", str.concat(sql_quote(name), ";")), "1")
 }
-fn next_memory_id() -> str {
-    return str.concat("mem-", next_counter("memory"))
-}
-fn next_link_id() -> str {
-    return str.concat("lnk-", next_counter("link"))
-}
-fn next_snapshot_id() -> str {
-    return str.concat("snap-", next_counter("snapshot"))
-}
+fn next_memory_id() -> str { return str.concat("mem-", next_counter("memory")) }
+fn next_link_id() -> str { return str.concat("lnk-", next_counter("link")) }
+fn next_snapshot_id() -> str { return str.concat("snap-", next_counter("snapshot")) }
 fn append_line(path: str, line: str) -> i32 {
     discard storage.atomic_append(path, line) return 0
 }
-fn append_memory_id(memory_id: str) -> i32 {
-    return append_line(memory_index_path(), memory_id)
+fn append_memory_id(memory_id: str) -> i32 { discard memory_id return 0 }
+fn append_link_id(link_id: str) -> i32 { discard link_id return 0 }
+fn append_session_id(session_id: str) -> i32 { discard session_id return 0 }
+fn memory_values_sql(memory_id: str, parsed: JsonHandle, payload: str) -> str {
+    return str.concat(sql_quote(memory_id), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "scope")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "kind")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "content")), str.concat(", ", str.concat(json.get_str(parsed, "importance"), str.concat(", ", str.concat(json.get_str(parsed, "confidence"), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "pinned")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "ttl")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "provenance")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "workspace_id")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "session_id")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "created_at")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "updated_at")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "last_accessed_at")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "status")), str.concat(", ", sql_quote(payload)))))))))))))))))))))))))))))
 }
-fn append_link_id(link_id: str) -> i32 {
-    return append_line(links_index_path(), link_id)
-}
-fn append_session_id(session_id: str) -> i32 {
-    return append_line(session_index_path(), session_id)
+fn upsert_memory_search(memory_id: str, parsed: JsonHandle) -> i32 {
+    discard sqlite_exec(str.concat("DELETE FROM memory_search WHERE memory_id = ", str.concat(sql_quote(memory_id), ";")))
+    if json.get_str(parsed, "status") != "active" {
+        return 0
+    }
+    let values = str.concat(sql_quote(memory_id), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "content")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "kind")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "scope")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "workspace_id")), str.concat(", ", sql_quote(json.get_str(parsed, "session_id")))))))))))
+    return sqlite_exec(str.concat("INSERT INTO memory_search(memory_id, content, kind, scope, workspace_id, session_id) VALUES(", str.concat(values, ");")))
 }
 fn save_memory(memory_id: str, payload: str) -> i32 {
-    ensure_state() fs.write_file(memory_doc_path(memory_id), payload) return 0
+    ensure_state()
+    let parsed = json.parse(payload)
+    let sql = str.concat("INSERT INTO memories(id, scope, kind, content, importance, confidence, pinned, ttl, provenance, workspace_id, session_id, created_at, updated_at, last_accessed_at, status, payload_json) VALUES(", str.concat(memory_values_sql(memory_id, parsed, payload), ")"))
+    discard sqlite_exec(str.concat(sql, " ON CONFLICT(id) DO UPDATE SET scope=excluded.scope, kind=excluded.kind, content=excluded.content, importance=excluded.importance, confidence=excluded.confidence, pinned=excluded.pinned, ttl=excluded.ttl, provenance=excluded.provenance, workspace_id=excluded.workspace_id, session_id=excluded.session_id, created_at=excluded.created_at, updated_at=excluded.updated_at, last_accessed_at=excluded.last_accessed_at, status=excluded.status, payload_json=excluded.payload_json;"))
+    return upsert_memory_search(memory_id, parsed)
 }
 fn save_link(link_id: str, payload: str) -> i32 {
-    ensure_state() fs.write_file(link_doc_path(link_id), payload) return 0
+    ensure_state()
+    let parsed = json.parse(payload)
+    let values = str.concat(sql_quote(link_id), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "from_id")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "relation")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "to_id")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "created_at")), str.concat(", ", sql_quote(payload))))))))))
+    let sql = str.concat("INSERT INTO links(id, from_id, relation, to_id, created_at, payload_json) VALUES(", str.concat(values, ")"))
+    return sqlite_exec(str.concat(sql, " ON CONFLICT(id) DO UPDATE SET from_id=excluded.from_id, relation=excluded.relation, to_id=excluded.to_id, created_at=excluded.created_at, payload_json=excluded.payload_json;"))
 }
 fn save_session(session_id: str, payload: str) -> i32 {
-    ensure_session(session_id) fs.write_file(session_doc_path(session_id), payload) return 0
+    ensure_session(session_id)
+    let parsed = json.parse(payload)
+    let values = str.concat(sql_quote(session_id), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "workspace_id")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "goal")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "request")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "state")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "frame_path")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "updated_at")), str.concat(", ", str.concat(sql_quote(payload), ", '{}', '[]', '{}'"))))))))))))))
+    let sql = str.concat("INSERT INTO sessions(session_id, workspace_id, goal, request, state, frame_path, updated_at, payload_json, registers_json, stack_json, frame_json) VALUES(", str.concat(values, ")"))
+    fs.write_file(session_doc_path(session_id), payload)
+    return sqlite_exec(str.concat(sql, " ON CONFLICT(session_id) DO UPDATE SET workspace_id=excluded.workspace_id, goal=excluded.goal, request=excluded.request, state=excluded.state, frame_path=excluded.frame_path, updated_at=excluded.updated_at, payload_json=excluded.payload_json;"))
 }
 fn save_registers(session_id: str, payload: str) -> i32 {
-    ensure_session(session_id) fs.write_file(session_registers_path(session_id), payload) return 0
+    ensure_session(session_id) fs.write_file(session_registers_path(session_id), payload) return sqlite_exec(str.concat("UPDATE sessions SET registers_json = ", str.concat(sql_quote(payload), str.concat(", updated_at = ", str.concat(sql_quote(now_text()), str.concat(" WHERE session_id = ", str.concat(sql_quote(session_id), ";")))))))
 }
 fn save_stack(session_id: str, payload: str) -> i32 {
-    ensure_session(session_id) fs.write_file(session_stack_path(session_id), payload) return 0
+    ensure_session(session_id) fs.write_file(session_stack_path(session_id), payload) return sqlite_exec(str.concat("UPDATE sessions SET stack_json = ", str.concat(sql_quote(payload), str.concat(", updated_at = ", str.concat(sql_quote(now_text()), str.concat(" WHERE session_id = ", str.concat(sql_quote(session_id), ";")))))))
 }
 fn save_frame(session_id: str, payload: str) -> i32 {
-    ensure_session(session_id) fs.write_file(session_frame_path(session_id), payload) return 0
+    ensure_session(session_id) fs.write_file(session_frame_path(session_id), payload) return sqlite_exec(str.concat("UPDATE sessions SET frame_json = ", str.concat(sql_quote(payload), str.concat(", updated_at = ", str.concat(sql_quote(now_text()), str.concat(" WHERE session_id = ", str.concat(sql_quote(session_id), ";")))))))
 }
 fn save_trace(session_id: str, name: str, payload: str) -> i32 {
     ensure_state() fs.mkdir(trace_dir(session_id)) fs.write_file(trace_path(session_id, name), payload) return 0
 }
 fn load_memory(memory_id: str) -> str {
-    return util.read_or(memory_doc_path(memory_id), "")
+    return sqlite_stdout(str.concat("SELECT payload_json FROM memories WHERE id = ", str.concat(sql_quote(memory_id), ";")), "")
 }
 fn load_link(link_id: str) -> str {
-    return util.read_or(link_doc_path(link_id), "")
+    return sqlite_stdout(str.concat("SELECT payload_json FROM links WHERE id = ", str.concat(sql_quote(link_id), ";")), "")
 }
 fn load_session(session_id: str) -> str {
+    let payload = sqlite_stdout(str.concat("SELECT payload_json FROM sessions WHERE session_id = ", str.concat(sql_quote(session_id), ";")), "")
+    if payload != "" { return payload }
     return util.read_or(session_doc_path(session_id), "")
 }
 fn load_registers(session_id: str) -> str {
-    return util.read_or(session_registers_path(session_id), "{}")
+    let payload = sqlite_stdout(str.concat("SELECT registers_json FROM sessions WHERE session_id = ", str.concat(sql_quote(session_id), ";")), "{}")
+    if payload == "" { return "{}" }
+    return payload
 }
 fn load_stack(session_id: str) -> str {
-    return util.read_or(session_stack_path(session_id), "[]")
+    let payload = sqlite_stdout(str.concat("SELECT stack_json FROM sessions WHERE session_id = ", str.concat(sql_quote(session_id), ";")), "[]")
+    if payload == "" { return "[]" }
+    return payload
 }
 fn load_frame(session_id: str) -> str {
-    return util.read_or(session_frame_path(session_id), "{}")
+    let payload = sqlite_stdout(str.concat("SELECT frame_json FROM sessions WHERE session_id = ", str.concat(sql_quote(session_id), ";")), "{}")
+    if payload == "" { return "{}" }
+    return payload
 }
 fn load_trace(session_id: str, name: str) -> str {
     return util.read_or(trace_path(session_id, name), "{}")
 }
 fn memory_ids_text() -> str {
-    return util.read_or(memory_index_path(), "")
+    return sqlite_stdout("SELECT COALESCE(group_concat(id, char(10)), '') FROM (SELECT id FROM memories ORDER BY id);", "")
 }
 fn links_ids_text() -> str {
-    return util.read_or(links_index_path(), "")
+    return sqlite_stdout("SELECT COALESCE(group_concat(id, char(10)), '') FROM (SELECT id FROM links ORDER BY id);", "")
 }
 fn session_ids_text() -> str {
-    return util.read_or(session_index_path(), "")
+    return sqlite_stdout("SELECT COALESCE(group_concat(session_id, char(10)), '') FROM (SELECT session_id FROM sessions ORDER BY session_id);", "")
 }
 fn save_snapshot(snapshot_id: str, payload: str) -> i32 {
-    ensure_state() fs.write_file(snapshot_path(snapshot_id), payload) return 0
+    ensure_state() fs.write_file(snapshot_path(snapshot_id), payload) return sqlite_exec(str.concat("INSERT INTO snapshots(snapshot_id, payload_json) VALUES(", str.concat(sql_quote(snapshot_id), str.concat(", ", str.concat(sql_quote(payload), ") ON CONFLICT(snapshot_id) DO UPDATE SET payload_json=excluded.payload_json;")))))
 }
 fn load_snapshot(snapshot_id: str) -> str {
+    let payload = sqlite_stdout(str.concat("SELECT payload_json FROM snapshots WHERE snapshot_id = ", str.concat(sql_quote(snapshot_id), ";")), "")
+    if payload != "" { return payload }
     return util.read_or(snapshot_path(snapshot_id), "")
+}
+fn clear_memory_records() -> i32 {
+    discard sqlite_exec("DELETE FROM memory_search;")
+    return sqlite_exec("DELETE FROM memories;")
+}
+fn clear_link_records() -> i32 {
+    return sqlite_exec("DELETE FROM links;")
+}
+fn metadata_score_sql(workspace_q: str, session_q: str) -> str {
+    return str.concat("((importance * 10) + (confidence * 5) + CASE WHEN pinned = 'true' THEN 50 ELSE 0 END + CASE WHEN workspace_id <> '' AND workspace_id = ", str.concat(workspace_q, str.concat(" THEN 20 ELSE 0 END + CASE WHEN session_id <> '' AND session_id = ", str.concat(session_q, " THEN 10 ELSE 0 END)"))))
+}
+fn lexical_bonus_sql(request_q: str) -> str {
+    return str.concat(" + CASE WHEN ", str.concat(request_q, str.concat(" <> '' AND instr(content, ", str.concat(request_q, str.concat(") > 0 THEN 25 ELSE 0 END + CASE WHEN ", str.concat(request_q, str.concat(" <> '' AND instr(", str.concat(request_q, ", kind) > 0 THEN 10 ELSE 0 END"))))))))
+}
+fn heuristic_query_memory_json(request: str, workspace_id: str, session_id: str, limit: i32) -> str {
+    let request_q = sql_quote(request)
+    let order_sql = str.concat(metadata_score_sql(sql_quote(workspace_id), sql_quote(session_id)), lexical_bonus_sql(request_q))
+    let sql = str.concat("SELECT COALESCE(json_group_array(json(payload_json)), '[]') FROM (SELECT payload_json FROM memories WHERE status = 'active' ORDER BY ", str.concat(order_sql, str.concat(" DESC, updated_at DESC LIMIT ", str.concat(str.from_i32(limit), ");"))))
+    return sqlite_stdout(sql, "[]")
+}
+fn heuristic_query_memory_ids_text(request: str, workspace_id: str, session_id: str, limit: i32) -> str {
+    let request_q = sql_quote(request)
+    let order_sql = str.concat(metadata_score_sql(sql_quote(workspace_id), sql_quote(session_id)), lexical_bonus_sql(request_q))
+    let sql = str.concat("SELECT COALESCE(group_concat(id, char(10)), '') FROM (SELECT id FROM memories WHERE status = 'active' ORDER BY ", str.concat(order_sql, str.concat(" DESC, updated_at DESC LIMIT ", str.concat(str.from_i32(limit), ");"))))
+    return sqlite_stdout(sql, "")
+}
+fn fts_query_memory_json(request: str, workspace_id: str, session_id: str, limit: i32) -> str {
+    let order_sql = str.concat(metadata_score_sql(sql_quote(workspace_id), sql_quote(session_id)), " + 200 + CAST((-bm25(memory_search)) * 25 AS INT)")
+    let sql = str.concat("SELECT COALESCE(json_group_array(json(payload_json)), '[]') FROM (SELECT memories.payload_json FROM memory_search JOIN memories ON memories.id = memory_search.memory_id WHERE memories.status = 'active' AND memory_search MATCH ", str.concat(sql_quote(request), str.concat(" ORDER BY ", str.concat(order_sql, str.concat(" DESC, memories.updated_at DESC LIMIT ", str.concat(str.from_i32(limit), ");"))))))
+    return sqlite_stdout(sql, "[]")
+}
+fn fts_query_memory_ids_text(request: str, workspace_id: str, session_id: str, limit: i32) -> str {
+    let order_sql = str.concat(metadata_score_sql(sql_quote(workspace_id), sql_quote(session_id)), " + 200 + CAST((-bm25(memory_search)) * 25 AS INT)")
+    let sql = str.concat("SELECT COALESCE(group_concat(id, char(10)), '') FROM (SELECT memories.id FROM memory_search JOIN memories ON memories.id = memory_search.memory_id WHERE memories.status = 'active' AND memory_search MATCH ", str.concat(sql_quote(request), str.concat(" ORDER BY ", str.concat(order_sql, str.concat(" DESC, memories.updated_at DESC LIMIT ", str.concat(str.from_i32(limit), ");"))))))
+    return sqlite_stdout(sql, "")
+}
+fn query_memory_json(request: str, workspace_id: str, session_id: str, limit: i32) -> str {
+    if request == "" { return heuristic_query_memory_json(request, workspace_id, session_id, limit) }
+    let ranked = fts_query_memory_json(request, workspace_id, session_id, limit)
+    if ranked != "[]" { return ranked }
+    return heuristic_query_memory_json(request, workspace_id, session_id, limit)
+}
+fn query_memory_ids_text(request: str, workspace_id: str, session_id: str, limit: i32) -> str {
+    if request == "" { return heuristic_query_memory_ids_text(request, workspace_id, session_id, limit) }
+    let ranked = fts_query_memory_ids_text(request, workspace_id, session_id, limit)
+    if ranked != "" { return ranked }
+    return heuristic_query_memory_ids_text(request, workspace_id, session_id, limit)
 }

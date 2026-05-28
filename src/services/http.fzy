@@ -56,6 +56,19 @@ fn handle_frame(conn: HttpHandle, path: str) -> i32 {
     }
     , request) http.write_json(conn, 200, payload) return 0
 }
+fn handle_complete(conn: HttpHandle, path: str) -> i32 {
+    let session_id = session_id_from_path(path) let raw = http.body(conn) let parsed = json.parse(if raw == "" {
+        "{}"
+    } else {
+        raw
+    }
+    ) let workspace_id = json.get_str(parsed, "workspace_id") let request = json.get_str(parsed, "request") let payload = runtime.complete(session_id, if workspace_id == "" {
+        "workspace"
+    } else {
+        workspace_id
+    }
+    , request) http.write_json(conn, 200, payload) return 0
+}
 fn handle_trace_get(conn: HttpHandle, path: str) -> i32 {
     let session_id = str.slice(path, str.len("/traces/"), str.len(path)) http.write_json(conn, 200, services.traces.replay_json(session_id)) return 0
 }

@@ -10,8 +10,31 @@ fn ask(session_id: str, workspace_id: str, request: str) -> str {
     }
     return services.planner.compile_frame(session_id, workspace_id, request)
 }
+fn complete(session_id: str, workspace_id: str, request: str) -> str {
+    let frame = ask(session_id, workspace_id, request)
+    let first = services.adapters.complete_json(session_id, frame, "")
+    let first_validation = services.validator.validate_completion_json(frame, first, "false")
+    services.store.save_trace(session_id, "validation.first.json", first_validation)
+    if json.get_str(json.parse(first_validation), "status") == "ok" {
+        services.store.save_trace(session_id, "adapter.result.json", first)
+        services.traces.write_inference_events(session_id, util.json_obj3("status", json.str("completed"), "adapter_inventory", json.raw(services.adapters.list_json()), "result", json.raw(first)))
+        return first
+    }
+    let second = services.adapters.complete_json(session_id, frame, services.validator.repair_note(frame, first, first_validation))
+    let second_validation = services.validator.validate_completion_json(frame, second, "true")
+    services.store.save_trace(session_id, "validation.final.json", second_validation)
+    if json.get_str(json.parse(second_validation), "status") == "ok" {
+        services.store.save_trace(session_id, "adapter.result.json", second)
+        services.traces.write_inference_events(session_id, util.json_obj3("status", json.str("repaired"), "adapter_inventory", json.raw(services.adapters.list_json()), "result", json.raw(second)))
+        return second
+    }
+    let rejected = model.types.completion_json(session_id, json.get_str(json.parse(second), "adapter"), "rejected", json.get_str(json.parse(second), "model"), json.get_str(json.parse(second_validation), "reason"), json.get_str(json.parse(second), "raw_response_path"), services.store.now_text())
+    services.store.save_trace(session_id, "adapter.result.json", rejected)
+    services.traces.write_inference_events(session_id, util.json_obj3("status", json.str("rejected"), "adapter_inventory", json.raw(services.adapters.list_json()), "result", json.raw(rejected)))
+    return rejected
+}
 fn health_json() -> str {
-    return model.types.health_json("ok", services.store.workspace_root(), str.from_i32(util.count_lines(services.store.memory_ids_text())), str.from_i32(util.count_lines(services.store.session_ids_text())), "json-first sqlite-ready",)
+    return model.types.health_json("ok", services.store.workspace_root(), str.from_i32(util.count_lines(services.store.memory_ids_text())), str.from_i32(util.count_lines(services.store.session_ids_text())), "sqlite-backed",)
 }
 fn replay_json(session_id: str) -> str {
     return services.traces.replay_json(session_id)

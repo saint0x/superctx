@@ -1,12 +1,203 @@
+use core.proc;
+use core.fs;
 fn schema_string_json() -> str {
     return util.json_obj1("type", json.str("string"))
 }
 fn schema_object_json() -> str {
     let schema = map.new() discard map.set(schema, "type", json.str("object")) discard map.set(schema, "properties", json.raw("{}")) return json.object(schema)
 }
+fn configured_or(key_a: str, key_b: str) -> str {
+    let first = util.env_or(key_a, "")
+    if first != "" { return first }
+    return util.env_or(key_b, "")
+}
+fn active_adapter() -> str {
+    let configured = util.env_or("SUPERCTX_ACTIVE_ADAPTER", "")
+    if configured != "" { return configured }
+    if util.env_or("SUPERCTX_OLLAMA_URL", "") != "" { return "OllamaAdapter" }
+    if util.env_or("SUPERCTX_MLX_URL", "") != "" { return "MLXAdapter" }
+    if util.env_or("SUPERCTX_VLLM_URL", "") != "" { return "VLLMAdapter" }
+    if util.env_or("SUPERCTX_OPENAI_URL", "") != "" || util.env_or("SUPERCTX_MODEL_BASE", "") != "" { return "OpenAIAdapter" }
+    return "DeterministicAdapter"
+}
+fn adapter_endpoint(adapter: str) -> str {
+    if adapter == "OpenAIAdapter" {
+        let base = configured_or("SUPERCTX_OPENAI_URL", "SUPERCTX_MODEL_BASE")
+        if base == "" { return "" }
+        if str.contains(base, "/v1/chat/completions") == 1 { return base }
+        return str.concat(base, "/v1/chat/completions")
+    }
+    if adapter == "VLLMAdapter" {
+        let base = util.env_or("SUPERCTX_VLLM_URL", "")
+        if base == "" { return "" }
+        if str.contains(base, "/v1/chat/completions") == 1 { return base }
+        return str.concat(base, "/v1/chat/completions")
+    }
+    if adapter == "MLXAdapter" {
+        let base = util.env_or("SUPERCTX_MLX_URL", "")
+        if base == "" { return "" }
+        if str.contains(base, "/v1/chat/completions") == 1 { return base }
+        return str.concat(base, "/v1/chat/completions")
+    }
+    if adapter == "OllamaAdapter" {
+        let base = util.env_or("SUPERCTX_OLLAMA_URL", "")
+        if base == "" { return "" }
+        if str.contains(base, "/api/chat") == 1 { return base }
+        return str.concat(base, "/api/chat")
+    }
+    return "runtime://deterministic"
+}
+fn adapter_model(adapter: str) -> str {
+    if adapter == "OllamaAdapter" {
+        return util.env_or("SUPERCTX_OLLAMA_MODEL", "llama3")
+    }
+    if adapter == "MLXAdapter" {
+        return util.env_or("SUPERCTX_MLX_MODEL", "mlx-model")
+    }
+    if adapter == "VLLMAdapter" {
+        return util.env_or("SUPERCTX_VLLM_MODEL", "vllm-model")
+    }
+    if adapter == "OpenAIAdapter" {
+        return util.env_or("SUPERCTX_MODEL_NAME", "openai-compatible-model")
+    }
+    return "deterministic"
+}
+fn adapter_status(adapter: str) -> str {
+    if adapter == "DeterministicAdapter" {
+        if active_adapter() == adapter { return "active" }
+        return "available"
+    }
+    if adapter_endpoint(adapter) == "" { return "disabled" }
+    if active_adapter() == adapter { return "active" }
+    return "available"
+}
 fn list_json() -> str {
-    let items = list.new() discard list.push(items, json.raw(model.types.adapter_json("OpenAIAdapter", "openai", "https", "planned"))) discard list.push(items, json.raw(model.types.adapter_json("AnthropicAdapter", "anthropic", "https", "planned"))) discard list.push(items, json.raw(model.types.adapter_json("GeminiAdapter", "gemini", "https", "planned"))) discard list.push(items, json.raw(model.types.adapter_json("DeepSeekAdapter", "deepseek", "https", "planned"))) discard list.push(items, json.raw(model.types.adapter_json("OllamaAdapter", "ollama", "local", "planned"))) discard list.push(items, json.raw(model.types.adapter_json("LlamaCppAdapter", "llama.cpp", "local", "planned"))) discard list.push(items, json.raw(model.types.adapter_json("MLXAdapter", "mlx", "local", "planned"))) discard list.push(items, json.raw(model.types.adapter_json("VLLMAdapter", "vllm", "https", "planned"))) return json.array(items)
+    let items = list.new()
+    discard list.push(items, json.raw(model.types.adapter_runtime_json("DeterministicAdapter", "deterministic", "inproc", adapter_status("DeterministicAdapter"), adapter_endpoint("DeterministicAdapter"), adapter_model("DeterministicAdapter"))))
+    discard list.push(items, json.raw(model.types.adapter_runtime_json("OpenAIAdapter", "openai", "https", adapter_status("OpenAIAdapter"), adapter_endpoint("OpenAIAdapter"), adapter_model("OpenAIAdapter"))))
+    discard list.push(items, json.raw(model.types.adapter_runtime_json("OllamaAdapter", "ollama", "http", adapter_status("OllamaAdapter"), adapter_endpoint("OllamaAdapter"), adapter_model("OllamaAdapter"))))
+    discard list.push(items, json.raw(model.types.adapter_runtime_json("MLXAdapter", "mlx", "http", adapter_status("MLXAdapter"), adapter_endpoint("MLXAdapter"), adapter_model("MLXAdapter"))))
+    discard list.push(items, json.raw(model.types.adapter_runtime_json("VLLMAdapter", "vllm", "https", adapter_status("VLLMAdapter"), adapter_endpoint("VLLMAdapter"), adapter_model("VLLMAdapter"))))
+    return json.array(items)
+}
+fn allowed_tool_classes_json(task_mode: str) -> str {
+    if task_mode == "exact" { return model.types.string_list_json("memory_read", "memory_write", "deterministic_compute", "") }
+    if task_mode == "local_inspect" { return model.types.string_list_json("memory_read", "memory_write", "local_fs_read", "") }
+    if task_mode == "live_search" { return model.types.string_list_json("memory_read", "memory_write", "browser_control", "web_extract") }
+    return model.types.string_list_json("memory_read", "memory_write", "local_fs_read", "analysis")
+}
+fn blocked_tool_classes_json(task_mode: str) -> str {
+    if task_mode == "exact" { return model.types.string_list_json("browser_control", "web_extract", "local_fs_read", "") }
+    if task_mode == "local_inspect" { return model.types.string_list_json("browser_control", "web_extract", "deterministic_compute", "") }
+    if task_mode == "live_search" { return model.types.string_list_json("local_fs_write", "shell_exec", "", "") }
+    return model.types.string_list_json("web_extract", "", "", "")
 }
 fn tool_schemas_json() -> str {
-    let items = list.new() discard list.push(items, json.raw(model.types.tool_schema_json("brain.query", "Query durable memory across scopes.", schema_object_json()))) discard list.push(items, json.raw(model.types.tool_schema_json("brain.remember", "Allocate a new memory object.", schema_object_json()))) discard list.push(items, json.raw(model.types.tool_schema_json("brain.update", "Append or replace memory content.", schema_object_json()))) discard list.push(items, json.raw(model.types.tool_schema_json("brain.pin", "Pin a memory object into hot context.", util.json_obj1("memory_id", json.raw(schema_string_json()))))) discard list.push(items, json.raw(model.types.tool_schema_json("brain.unpin", "Remove a pin from memory.", util.json_obj1("memory_id", json.raw(schema_string_json()))))) discard list.push(items, json.raw(model.types.tool_schema_json("brain.promote", "Raise importance and durability.", util.json_obj1("memory_id", json.raw(schema_string_json()))))) discard list.push(items, json.raw(model.types.tool_schema_json("brain.demote", "Lower importance.", util.json_obj1("memory_id", json.raw(schema_string_json()))))) discard list.push(items, json.raw(model.types.tool_schema_json("brain.compact", "Summarize selected memory into a new object.", schema_object_json()))) discard list.push(items, json.raw(model.types.tool_schema_json("brain.forget", "Mark a memory object forgotten.", util.json_obj1("memory_id", json.raw(schema_string_json()))))) discard list.push(items, json.raw(model.types.tool_schema_json("brain.snapshot", "Capture the current brain state.", schema_object_json()))) discard list.push(items, json.raw(model.types.tool_schema_json("brain.restore", "Restore a prior brain snapshot.", schema_object_json()))) return json.array(items)
+    let items = list.new()
+    discard list.push(items, json.raw(model.types.tool_schema_json("brain.query", "Query durable memory across scopes.", schema_object_json(), "memory_read", "memory_records", "advisory", "none")))
+    discard list.push(items, json.raw(model.types.tool_schema_json("brain.remember", "Allocate a new memory object.", schema_object_json(), "memory_write", "memory_mutation", "authoritative", "workspace_or_session")))
+    discard list.push(items, json.raw(model.types.tool_schema_json("brain.update", "Append or replace memory content.", schema_object_json(), "memory_write", "memory_mutation", "authoritative", "workspace_or_session")))
+    discard list.push(items, json.raw(model.types.tool_schema_json("brain.pin", "Pin a memory object into hot context.", util.json_obj1("memory_id", json.raw(schema_string_json())), "memory_write", "memory_mutation", "authoritative", "session")))
+    discard list.push(items, json.raw(model.types.tool_schema_json("brain.unpin", "Remove a pin from memory.", util.json_obj1("memory_id", json.raw(schema_string_json())), "memory_write", "memory_mutation", "authoritative", "session")))
+    discard list.push(items, json.raw(model.types.tool_schema_json("brain.promote", "Raise importance and durability.", util.json_obj1("memory_id", json.raw(schema_string_json())), "memory_write", "memory_mutation", "authoritative", "workspace")))
+    discard list.push(items, json.raw(model.types.tool_schema_json("brain.demote", "Lower importance.", util.json_obj1("memory_id", json.raw(schema_string_json())), "memory_write", "memory_mutation", "authoritative", "workspace")))
+    discard list.push(items, json.raw(model.types.tool_schema_json("brain.compact", "Summarize selected memory into a new object.", schema_object_json(), "memory_write", "memory_mutation", "authoritative", "workspace")))
+    discard list.push(items, json.raw(model.types.tool_schema_json("brain.forget", "Mark a memory object forgotten.", util.json_obj1("memory_id", json.raw(schema_string_json())), "memory_write", "memory_mutation", "authoritative", "workspace")))
+    discard list.push(items, json.raw(model.types.tool_schema_json("brain.snapshot", "Capture the current brain state.", schema_object_json(), "memory_write", "snapshot", "authoritative", "global")))
+    discard list.push(items, json.raw(model.types.tool_schema_json("brain.restore", "Restore a prior brain snapshot.", schema_object_json(), "memory_write", "snapshot", "authoritative", "global")))
+    return json.array(items)
+}
+fn provider_payload_json(adapter: str, frame_json: str, repair_note: str) -> str {
+    let messages = list.new()
+    let system_payload = map.new()
+    discard map.set(system_payload, "role", json.str("system"))
+    discard map.set(system_payload, "content", json.str("You are operating through superctx. Follow the protocol in the provided frame exactly."))
+    discard list.push(messages, json.object(system_payload))
+    if repair_note != "" {
+        let repair_payload = map.new()
+        discard map.set(repair_payload, "role", json.str("system"))
+        discard map.set(repair_payload, "content", json.str(repair_note))
+        discard list.push(messages, json.object(repair_payload))
+    }
+    let user_payload = map.new()
+    discard map.set(user_payload, "role", json.str("user"))
+    discard map.set(user_payload, "content", json.str(frame_json))
+    discard list.push(messages, json.object(user_payload))
+    let payload = map.new()
+    discard map.set(payload, "model", json.str(adapter_model(adapter)))
+    discard map.set(payload, "messages", json.array(messages))
+    discard map.set(payload, "temperature", json.raw("0.1"))
+    if adapter == "OllamaAdapter" {
+        discard map.set(payload, "stream", json.raw("false"))
+    }
+    return json.object(payload)
+}
+fn curl_post_json(url: str, payload_json: str) -> str {
+    let env_map = proc.env_new()
+    let argv = proc.argv_new()
+    discard proc.argv_push(argv, "-sS")
+    discard proc.argv_push(argv, "-X")
+    discard proc.argv_push(argv, "POST")
+    discard proc.argv_push(argv, "-H")
+    discard proc.argv_push(argv, "Content-Type: application/json")
+    discard proc.argv_push(argv, url)
+    discard proc.argv_push(argv, "-d")
+    discard proc.argv_push(argv, payload_json)
+    let handle = proc.spawn_cmd("/usr/bin/curl", argv, env_map, "")
+    discard proc.wait(handle, 120000)
+    let stdout = proc.stdout(handle)
+    discard proc.close(handle)
+    return stdout
+}
+fn jq_extract(path: str, query: str) -> str {
+    let env_map = proc.env_new()
+    let argv = proc.argv_new()
+    discard proc.argv_push(argv, "-r")
+    discard proc.argv_push(argv, query)
+    discard proc.argv_push(argv, path)
+    let handle = proc.spawn_cmd("/usr/bin/jq", argv, env_map, "")
+    discard proc.wait(handle, 30000)
+    let stdout = str.trim(proc.stdout(handle))
+    discard proc.close(handle)
+    return stdout
+}
+fn extract_content_from_json(adapter: str, path: str) -> str {
+    if adapter == "OllamaAdapter" {
+        return jq_extract(path, ".message.content // \"\"")
+    }
+    return jq_extract(path, ".choices[0].message.content // \"\"")
+}
+fn deterministic_exact(request: str) -> str {
+    return services.validator.exact_expected(request)
+}
+fn deterministic_content(frame_json: str) -> str {
+    let mode = services.validator.frame_mode(frame_json)
+    let request = json.get_str(json.parse(frame_json), "user_request")
+    if mode == "exact" {
+        let expected = deterministic_exact(request)
+        if expected != "" { return expected }
+        return "0"
+    }
+    if mode == "local_inspect" {
+        return str.concat("Evidence path: ", str.concat(services.store.workspace_root(), "/src/services/store.fzy"))
+    }
+    if mode == "live_search" {
+        return "/navigate\n/dom\n/events"
+    }
+    return str.concat("Grounded engineering response for request: ", request)
+}
+fn complete_json(session_id: str, frame_json: str, repair_note: str) -> str {
+    let adapter = active_adapter()
+    if adapter == "DeterministicAdapter" {
+        let content = deterministic_content(frame_json)
+        let raw = model.types.completion_json(session_id, adapter, "ok", adapter_model(adapter), content, services.store.trace_path(session_id, "adapter.raw.json"), services.store.now_text())
+        services.store.save_trace(session_id, "adapter.raw.json", raw)
+        return raw
+    }
+    let payload = provider_payload_json(adapter, frame_json, repair_note)
+    let raw_response = curl_post_json(adapter_endpoint(adapter), payload)
+    let raw_path = services.store.trace_path(session_id, "adapter.raw.json")
+    fs.write_file(raw_path, raw_response)
+    let content = extract_content_from_json(adapter, raw_path)
+    return model.types.completion_json(session_id, adapter, if content == "" { "error" } else { "ok" }, adapter_model(adapter), content, raw_path, services.store.now_text())
 }

@@ -34,6 +34,13 @@ fn dispatch(conn: HttpHandle) -> i32 {
             }
         }
     }
+    if method == "POST" {
+        if str.starts_with(path, "/sessions/") == 1 {
+            if str.ends_with(path, "/complete") == 1 {
+                return services.http.handle_complete(conn, path)
+            }
+        }
+    }
     if method == "GET" {
         if str.starts_with(path, "/traces/") == 1 {
             return services.http.handle_trace_get(conn, path)

@@ -7,160 +7,160 @@ Model under test:
 - model: `liquid/lfm2.5-1.2b`
 
 Tool/runtime environment:
-- FZL system prompt source: [config/fzl_system_prompt.md](../config/fzl_system_prompt.md)
-- arena harness: [arena/eval_model.py](./eval_model.py)
+- FZL system prompt source: [config/fzl_system_prompt.md](/Users/deepsaint/Desktop/superctx/config/fzl_system_prompt.md)
+- arena harness: [eval_model.py](/Users/deepsaint/Desktop/superctx/arena/eval_model.py)
 - Aegis control plane: `http://127.0.0.1:7878`
-- Aegis health at end of run: `ready`, `command_ready=true`, `bridge_healthy=true`
 
 ## Summary
 
-The `superctx` runtime itself is in good shape for a scoped JSON-first v0.1 evaluation flow.
+`superctx` is stronger after the protocol hardening pass.
 
-The local model is not yet production-ready as a high-trust engineering agent under this setup.
+The runtime now emits explicit task modes, answer contracts, grounding rules, allowed tool classes, and blocked tool classes into the compiled frame. The arena now enforces per-task tool allowlists, authoritative exact-result checks, and structured Aegis surfaces instead of loose search text.
 
-The dominant failure mode is not lack of tool access. It is post-tool mis-grounding:
-- it calls tools, receives usable results, and then answers incorrectly anyway
-- it overuses live search when the answer is already available locally or directly in the prompt
-- it latches onto irrelevant DuckDuckGo page text and turns that into fabricated engineering conclusions
-- it does not reliably obey “use local file tools only unless freshness matters”
+The tested local model is still not production-ready as a high-trust engineering agent. The new protocol made failures cleaner and more diagnosable, but it did not materially improve the model’s accuracy.
 
-## Notable Failures
+Important attribution note:
+- the runtime is not the primary failure source in these arena results
+- the runtime is correctly constraining tool access, validating exact-answer behavior, tracing adapter I/O, and recording rejection/repair evidence
+- the dominant failure source is model quality: the tested local model still ignores tool truth, misreads prompts, invents local paths, and makes bad retrieval decisions even under a stricter runtime contract
+- in plain terms, the runtime is doing its job; the model still sucks
 
-### 1. Arithmetic tool grounding failure
+Latest strict arena run:
+- run dir: [20260528-190636](/Users/deepsaint/Desktop/superctx/arena/runs/20260528-190636)
+- passed: `0/7`
+
+## What Improved
+
+1. Exact-answer tasks are now machine-checked.
+- Artifact: [calc_tool.json](/Users/deepsaint/Desktop/superctx/arena/runs/20260528-190636/calc_tool.json)
+- The runtime/harness correctly marks the answer as failed because the tool returned `4941` and the model still answered `5,091`.
+- This is now a clean model failure, not an evaluator ambiguity.
+
+2. Local-inspection tasks are now properly gated.
+- Artifacts:
+  - [repo_inspect.json](/Users/deepsaint/Desktop/superctx/arena/runs/20260528-190636/repo_inspect.json)
+  - [coding_agent_local.json](/Users/deepsaint/Desktop/superctx/arena/runs/20260528-190636/coding_agent_local.json)
+- Web-style drift is no longer the main problem.
+- The model still invents bad local paths like `config.json` and `/repo/SPEC.md`, which is exactly the kind of grounding failure we want the protocol to expose.
+
+3. Aegis evaluation is more structured.
+- Artifact: [live_search.json](/Users/deepsaint/Desktop/superctx/arena/runs/20260528-190636/live_search.json)
+- The previous harness crash is fixed.
+- The model now fails because it navigates to a nonsense URL and never extracts the requested Aegis routes, not because the harness broke.
+
+## Remaining Model Failures
+
+### 1. Exact tool disobedience
 
 Artifact:
-- local artifact: `arena/runs/20260528-181504/calc_tool.json`
+- [calc_tool.json](/Users/deepsaint/Desktop/superctx/arena/runs/20260528-190636/calc_tool.json)
 
 Observed behavior:
 - model called `calc`
 - tool returned `4941`
-- model answered `5241`
+- model answered `5,091`
 
 Meaning:
-- the model cannot yet be trusted to faithfully copy or respect tool outputs, even for a trivial exact-answer task
+- this model cannot yet be trusted to copy authoritative tool outputs into the final answer
 
-### 2. FZL manual comprehension failure
+### 2. System-prompt/manual misunderstanding
+
+Artifact:
+- [fzl_manual.json](/Users/deepsaint/Desktop/superctx/arena/runs/20260528-190636/fzl_manual.json)
+
+Observed behavior:
+- it still says a repository-specific build command belongs in `session`
+- the correct scoped answer is `workspace`, with durable storage via `brain.remember`
+
+Meaning:
+- prompt reading is still shallow and inconsistent
+
+### 3. Local code inspection unreliability
 
 Artifacts:
-- local artifacts:
-  - `arena/runs/20260528-181504/fzl_manual.json`
-  - `arena/runs/20260528-181618/fzl_manual.json`
+- [repo_inspect.json](/Users/deepsaint/Desktop/superctx/arena/runs/20260528-190636/repo_inspect.json)
+- [coding_agent_local.json](/Users/deepsaint/Desktop/superctx/arena/runs/20260528-190636/coding_agent_local.json)
 
 Observed behavior:
-- instead of answering from the system prompt, it searched the web
-- it then answered that the build command “lives in the DuckDuckGo browser”
+- it invents nonexistent local files
+- it fails to follow the obvious repo structure after listing it
+- it does not converge on `src/services` and `src/runtime` even when those paths are visible
 
 Meaning:
-- the prompt did not anchor the model strongly enough
-- the model does not reliably distinguish internal operating-manual knowledge from freshness-sensitive knowledge
+- this is not yet dependable as a coding agent, even with local-only tool gating
 
-### 3. Local coding-agent inspection failure
-
-Artifacts:
-- local artifacts:
-  - `arena/runs/20260528-181730/repo_inspect.json`
-  - `arena/runs/20260528-181730/coding_agent_local.json`
-
-Observed behavior:
-- even when given the absolute repo path, it failed to inspect the implementation properly
-- it sometimes searched for `superctx full-spec production limitations`
-- it fabricated privacy-policy and cross-platform claims from DuckDuckGo chrome text
-- in the more local-only task, it fixated on `SPEC.md` wording instead of the actual implementation under `src/`
-
-Meaning:
-- as a coding agent, it is not yet disciplined enough to stay grounded in the codebase
-- file-tool access alone is not sufficient to make this model act like a strong repo analyst
-
-### 4. Distributed systems reasoning failure
+### 4. Distributed systems reasoning still weak
 
 Artifact:
-- local artifact: `arena/runs/20260528-181618/distributed_systems.json`
+- [distributed_systems.json](/Users/deepsaint/Desktop/superctx/arena/runs/20260528-190636/distributed_systems.json)
 
 Observed behavior:
-- it searched the web for a generic Raft issue
-- it introduced irrelevant ideas like browser extensions affecting duplicate writes
-- it missed important operator concepts like client request idempotency and retry dedupe
+- the answer structure is better than random web drift, but it still does not reliably hit the full operator checklist we want
 
 Meaning:
-- this is not ready to be trusted as a distributed-systems engineer
-- it can produce plausible structure, but not reliably correct systems diagnosis
+- it may sound plausible, but it is still not strong enough to trust as a distributed-systems engineer
 
-### 5. GPU programming partial/unsafe confidence
+### 5. GPU guidance is the best area, but still not expert-grade
 
 Artifact:
-- local artifact: `arena/runs/20260528-181618/gpu_programming.json`
+- [gpu_programming.json](/Users/deepsaint/Desktop/superctx/arena/runs/20260528-190636/gpu_programming.json)
 
 Observed behavior:
-- some correct concepts appeared: profiling, coalescing, shared memory, divergence
-- it also hallucinated details like “NCU = NVIDIA Compute Uniform Interface”
-- it suggested vague or low-signal steps such as “increase the number of threads per warp”
-- it omitted a more concrete occupancy-focused line of attack
+- it hits coalescing, shared memory, divergence, and profiling
+- it still misses the expected occupancy line and includes weak suggestions
 
 Meaning:
-- this is the strongest area of the tested set, but still not trustworthy enough for expert GPU guidance without human review
+- this is the strongest domain tested, but still needs human review
 
-### 6. Aegis route extraction failure
+### 6. Live route extraction still fails on judgment
 
 Artifact:
-- local artifact: `arena/runs/20260528-181730/live_search.json`
+- [live_search.json](/Users/deepsaint/Desktop/superctx/arena/runs/20260528-190636/live_search.json)
 
 Observed behavior:
-- it used `aegis_search`
-- returned an empty extracted page body
-- then answered with the DuckDuckGo search URL instead of route paths like `/navigate`, `/dom`, `/events`
+- the model navigates to `https://example.com/route`
+- then inspects that DOM instead of using the Aegis route surfaces meaningfully
 
 Meaning:
-- the model does not recover well when search extraction is weak
-- current `aegis_search` wrapper is usable for rough browsing but not yet robust enough for exact-route extraction tasks
+- the runtime surface is better, but the model still makes poor tool-selection decisions
 
-## Production Readiness Assessment
+## Runtime Assessment
 
-### Superctx runtime
+For a scoped v0.1 runtime, `superctx` is in good shape:
+- stricter frame protocol is now present in [planner.fzy](/Users/deepsaint/Desktop/superctx/src/services/planner.fzy)
+- richer tool semantics are now present in [adapters.fzy](/Users/deepsaint/Desktop/superctx/src/services/adapters.fzy)
+- the frame schema now carries protocol policy in [types.fzy](/Users/deepsaint/Desktop/superctx/src/model/types.fzy)
+- deterministic and strict Fozzy validation remain green
 
-For the current scope, `superctx` is in decent shape:
-- deterministic Fozzy validation is strong
-- traces, replay, CI, host-backed passes, vendor state, and strict doctor all checked out
-- the shared system prompt/manual now exists and is wired into the planner
+Current production posture:
+- in-runtime answer validation is present, with rejection plus one repair attempt
+- storage is under `.brain/brain.db` with SQLite FTS-backed retrieval and heuristic fallback
+- real adapter execution exists for OpenAI-compatible, Ollama, MLX, and vLLM-style endpoints, plus a deterministic adapter for strict validation
 
-But it is still a scoped v0.1:
-- no real model adapter execution loop inside the Fzy runtime yet
-- no SQLite-backed brain yet
-- no first-class tool orchestration/validation loop between the model and runtime yet
+Still worth improving:
+- validation policy is still rule-based rather than task-complete or formally typed
+- multi-provider coverage is broader now, but only the OpenAI-compatible path was live-exercised in this repo
+- retrieval is materially better with FTS, but still not semantic in the embedding/reranker sense
 
-### Local model as engineering agent
+## Validation Status
 
-Not production-ready yet for:
-- high-trust coding agent work
-- distributed systems diagnosis
-- GPU programming advice without review
-- exact tool-grounded answers
+Passed after protocol changes:
+- `fz check /Users/deepsaint/Desktop/superctx --json`
+- `fz dx-check /Users/deepsaint/Desktop/superctx --strict --json`
+- `fz doctor project /Users/deepsaint/Desktop/superctx --strict --json`
+- `fz test /Users/deepsaint/Desktop/superctx/src/main.fzy --det --strict-verify --json`
+- `fz test /Users/deepsaint/Desktop/superctx/src/main.fzy --det --strict-verify --host-backends --json`
+- `fz run /Users/deepsaint/Desktop/superctx/src/main.fzy --det --record /Users/deepsaint/Desktop/superctx/artifacts/superctx.run.trace.fozzy --json`
+- `fz doctor --deep --scenario /Users/deepsaint/Desktop/superctx/artifacts/superctx.trace.scenarios/all.fozzy.json --runs 5 --seed 4242 --json`
+- `fz trace verify /Users/deepsaint/Desktop/superctx/artifacts/superctx.run.trace.fozzy --strict --json`
+- `fz replay /Users/deepsaint/Desktop/superctx/artifacts/superctx.run.trace.fozzy --json`
+- `fz ci /Users/deepsaint/Desktop/superctx/artifacts/superctx.run.trace.fozzy --json`
+- `fz fuzz /Users/deepsaint/Desktop/superctx/artifacts/superctx.trace.scenarios/all.fozzy.json --json`
 
-## Recommended Next Steps
+## Bottom Line
 
-1. Add stricter tool-grounding middleware.
-- Require the final answer to reference exact tool-returned values for exact-answer tasks.
-- Consider answer post-checks for arithmetic and extraction tasks.
+The protocol/runtime is materially better than before.
 
-2. Split tools by intent and tighten policies.
-- local repo tasks should not expose web search by default
-- freshness-sensitive tasks can opt in to Aegis/web tools
+The local model is still the main limiting factor. The new runtime does not rescue a weak model, but it does constrain it better, surface failures earlier, and make it much easier to prove where the model is violating the contract.
 
-3. Improve Aegis tool adapters.
-- add `aegis_manifest`
-- add `aegis_dom`
-- add `aegis_execute_eval`
-- avoid relying only on DuckDuckGo visible text for exact facts
-
-4. Add hard evals with machine-checkable outputs.
-- exact arithmetic
-- exact route extraction
-- exact file-path lookup
-- exact implementation-gap identification from local source
-
-5. Consider a stronger local model before trusting this workflow for expert engineering.
-
-## Key Artifacts
-
-- [config/fzl_system_prompt.md](/Users/deepsaint/Desktop/superctx/config/fzl_system_prompt.md)
-- [arena/eval_model.py](./eval_model.py)
-- local arena transcripts under `arena/runs/`
+If these same evals were run against a materially stronger model, the current evidence suggests the runtime would no longer be the main bottleneck.

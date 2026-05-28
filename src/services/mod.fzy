@@ -3,6 +3,7 @@ mod adapters;
 mod traces;
 mod brain;
 mod planner;
+mod validator;
 mod http;
 mod web;
 fn boot_all() -> i32 {

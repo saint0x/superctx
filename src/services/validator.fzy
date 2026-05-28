@@ -1,0 +1,111 @@
+use core.proc;
+fn frame_mode(frame_json: str) -> str {
+    if str.contains(frame_json, "\"task_mode\":\"exact\"") == 1 { return "exact" }
+    if str.contains(frame_json, "\"task_mode\":\"local_inspect\"") == 1 { return "local_inspect" }
+    if str.contains(frame_json, "\"task_mode\":\"live_search\"") == 1 { return "live_search" }
+    return "engineering"
+}
+fn extract_request(frame_json: str) -> str {
+    return json.get_str(json.parse(frame_json), "user_request")
+}
+fn extract_completion_content(completion_json: str) -> str {
+    return json.get_str(json.parse(completion_json), "content")
+}
+fn normalize_exact_content(content: str) -> str {
+    return str.trim(util.strip_chars(content, "*", "`", "\n", "\r"))
+}
+fn extract_math_expression(request: str) -> str {
+    let mut idx: i32 = 0;
+    let mut out = "";
+    let mut started: i32 = 0;
+    while idx < str.len(request) {
+        let ch = str.slice(request, idx, idx + 1)
+        if util.is_math_token(ch) == 1 {
+            if started == 0 {
+                if util.is_digit(ch) == 1 || ch == "(" {
+                    started = 1
+                    out = ch
+                }
+            } else {
+                out = str.concat(out, ch)
+            }
+        } else {
+            if started == 1 {
+                break
+            }
+        }
+        idx += 1
+    }
+    return str.trim(out)
+}
+fn shell_eval_math(expr: str) -> str {
+    if expr == "" { return "" }
+    let env_map = proc.env_new()
+    let argv = proc.argv_new()
+    discard proc.argv_push(argv, "-lc")
+    discard proc.argv_push(argv, str.concat("python3 - <<'PY'\nexpr = \"", str.concat(str.replace(expr, "\"", "\\\""), "\"\nprint(eval(expr, {\"__builtins__\": {}}, {}))\nPY")))
+    let handle = proc.spawn_cmd("/bin/sh", argv, env_map, "")
+    discard proc.wait(handle, 30000)
+    let stdout = str.trim(proc.stdout(handle))
+    discard proc.close(handle)
+    return stdout
+}
+fn exact_expected(request: str) -> str {
+    return shell_eval_math(extract_math_expression(request))
+}
+fn has_workspace_path(content: str, workspace_root: str) -> i32 {
+    if workspace_root != "" {
+        if str.contains(content, workspace_root) == 1 {
+            return 1
+        }
+    }
+    if str.contains(content, "/src/") == 1 { return 1 }
+    return 0
+}
+fn live_routes_only(content: str) -> i32 {
+    if content == "" { return 0 }
+    if str.contains(content, "http://") == 1 { return 0 }
+    if str.contains(content, "https://") == 1 { return 0 }
+    if str.contains(content, "/") == 0 { return 0 }
+    return 1
+}
+fn validate_completion_json(frame_json: str, completion_json: str, repaired: str) -> str {
+    let mode = frame_mode(frame_json)
+    let request = extract_request(frame_json)
+    let content = extract_completion_content(completion_json)
+    if content == "" {
+        return model.types.validation_json("reject", mode, "empty_completion", "", content, repaired, services.store.now_text())
+    }
+    if mode == "exact" {
+        let expected = exact_expected(request)
+        if expected != "" {
+            if normalize_exact_content(content) != expected {
+                return model.types.validation_json("reject", mode, "exact_mismatch", expected, content, repaired, services.store.now_text())
+            }
+        }
+        return model.types.validation_json("ok", mode, "exact_match", expected, content, repaired, services.store.now_text())
+    }
+    if mode == "local_inspect" {
+        if has_workspace_path(content, services.store.workspace_root()) == 0 {
+            return model.types.validation_json("reject", mode, "missing_local_path_evidence", services.store.workspace_root(), content, repaired, services.store.now_text())
+        }
+        return model.types.validation_json("ok", mode, "local_paths_present", services.store.workspace_root(), content, repaired, services.store.now_text())
+    }
+    if mode == "live_search" {
+        if live_routes_only(content) == 0 {
+            return model.types.validation_json("reject", mode, "live_routes_not_grounded", "/route-paths-only", content, repaired, services.store.now_text())
+        }
+        return model.types.validation_json("ok", mode, "live_routes_grounded", "/route-paths-only", content, repaired, services.store.now_text())
+    }
+    if str.len(content) < 16 {
+        return model.types.validation_json("reject", mode, "engineering_answer_too_thin", "substantive_answer", content, repaired, services.store.now_text())
+    }
+    return model.types.validation_json("ok", mode, "engineering_answer_present", "substantive_answer", content, repaired, services.store.now_text())
+}
+fn repair_note(frame_json: str, completion_json: str, validation_json: str) -> str {
+    let request = extract_request(frame_json)
+    let content = extract_completion_content(completion_json)
+    let reason = json.get_str(json.parse(validation_json), "reason")
+    let expected = json.get_str(json.parse(validation_json), "expected")
+    return str.concat("Repair the previous answer. Original request: ", str.concat(request, str.concat(". Validation failure: ", str.concat(reason, str.concat(". Expected: ", str.concat(expected, str.concat(". Previous answer: ", content)))))))
+}
