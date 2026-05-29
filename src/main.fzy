@@ -1,10 +1,6 @@
-use core.fs;
-use core.http;
-use core.storage;
 use core.log;
-use core.time;
 use core.process;
-use core.term;
+
 mod api;
 mod model;
 mod services;
@@ -12,17 +8,17 @@ mod runtime;
 mod cli;
 mod tests;
 mod util;
+
+fn boot_runtime() -> i32 {
+    discard model.preflight();
+    discard runtime.boot();
+    discard cli.boot();
+    discard api.touch();
+    return 0;
+}
+
 fn main() -> i32 {
-    model.preflight();
-    runtime.boot();
-    cli.boot();
-    api.touch();
-    let cmd = process.argv_or(1, "help");
-    if cmd == "help" {
-        return cli.print_help()
-    }
-    if cmd == "--help" {
-        return cli.print_help()
-    }
-    return cli.commands.dispatch()
+    discard boot_runtime();
+    let command = process.argv_or(1, "help");
+    return cli.run(command);
 }

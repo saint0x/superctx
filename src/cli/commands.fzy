@@ -1,92 +1,123 @@
 use core.process;
+
 fn arg(index: i32) -> str {
     return process.argv_or(index, "")
 }
-fn mode() -> str {
-    return process.argv_or(1, "help")
-}
+
 fn print_help() -> i32 {
-    util.println("superctx commands:");
-    util.println("  init");
-    util.println("  health");
-    util.println("  adapters");
-    util.println("  remember <scope> <kind> <importance> <confidence> <content>");
-    util.println("  query <workspace_id> <session_id> <request>");
-    util.println("  pin <memory_id>");
-    util.println("  unpin <memory_id>");
-    util.println("  promote <memory_id>");
-    util.println("  demote <memory_id>");
-    util.println("  forget <memory_id>");
-    util.println("  compact <workspace_id> <session_id> <request>");
-    util.println("  snapshot");
-    util.println("  restore <snapshot_id>");
-    util.println("  frame <session_id> <workspace_id> <request>");
-    util.println("  complete <session_id> <workspace_id> <request>");
-    util.println("  replay <session_id>");
-    util.println("  serve");
+    discard util.println("superctx commands:");
+    discard util.println("  init");
+    discard util.println("  health");
+    discard util.println("  adapters");
+    discard util.println("  remember <scope> <kind> <importance> <confidence> <content>");
+    discard util.println("  query <workspace_id> <session_id> <request>");
+    discard util.println("  pin <memory_id>");
+    discard util.println("  unpin <memory_id>");
+    discard util.println("  promote <memory_id>");
+    discard util.println("  demote <memory_id>");
+    discard util.println("  forget <memory_id>");
+    discard util.println("  compact <workspace_id> <session_id> <request>");
+    discard util.println("  snapshot");
+    discard util.println("  restore <snapshot_id>");
+    discard util.println("  frame <session_id> <workspace_id> <request>");
+    discard util.println("  complete <session_id> <workspace_id> <request>");
+    discard util.println("  replay <session_id>");
+    discard util.println("  serve");
     return 0
 }
-fn dispatch() -> i32 {
-    let cmd = mode();
-    if cmd == "help" {
-        return print_help()
+
+fn print_json(payload_json: str) -> i32 {
+    return util.println(payload_json)
+}
+
+fn run_init() -> i32 {
+    discard services.store.ensure_state();
+    return print_json(
+        util.json_obj2(
+            "status",
+            json.str("ok"),
+            "state_root",
+            json.str(services.store.state_root()),
+        ),
+    )
+}
+
+fn run_remember() -> i32 {
+    let payload = services.brain.remember(
+        arg(2),
+        arg(3),
+        arg(6),
+        util.parse_i32(arg(4)),
+        util.parse_i32(arg(5)),
+        0,
+        "persistent",
+        "cli.remember",
+        "workspace",
+        "default",
+    );
+    return print_json(payload)
+}
+
+fn run_frame() -> i32 {
+    discard runtime.start_session(arg(2), arg(3), arg(4));
+    return print_json(runtime.ask(arg(2), arg(3), arg(4)))
+}
+
+fn run_complete() -> i32 {
+    discard runtime.start_session(arg(2), arg(3), arg(4));
+    return print_json(runtime.complete(arg(2), arg(3), arg(4)))
+}
+
+fn dispatch(command: str) -> i32 {
+    if command == "init" {
+        return run_init()
     }
-    if cmd == "--help" {
-        return print_help()
+    if command == "health" {
+        return print_json(runtime.health_json())
     }
-    if cmd == "init" {
-        services.store.ensure_state();
-        return util.println(util.json_obj2("status", json.str("ok"), "state_root", json.str(services.store.state_root())))
+    if command == "adapters" {
+        return print_json(services.adapters.list_json())
     }
-    if cmd == "health" {
-        return util.println(runtime.health_json())
+    if command == "remember" {
+        return run_remember()
     }
-    if cmd == "adapters" {
-        return util.println(services.adapters.list_json())
+    if command == "query" {
+        return print_json(services.brain.query_json(arg(4), arg(2), arg(3), 6))
     }
-    if cmd == "remember" {
-        let payload = services.brain.remember(arg(2), arg(3), arg(6), util.parse_i32(arg(4)), util.parse_i32(arg(5)), 0, "persistent", "cli.remember", "workspace", "default");
-        return util.println(payload)
+    if command == "pin" {
+        return print_json(services.brain.set_pin(arg(2), "true"))
     }
-    if cmd == "query" {
-        return util.println(services.brain.query_json(arg(4), arg(2), arg(3), 6))
+    if command == "unpin" {
+        return print_json(services.brain.set_pin(arg(2), "false"))
     }
-    if cmd == "pin" {
-        return util.println(services.brain.set_pin(arg(2), "true"))
+    if command == "promote" {
+        return print_json(services.brain.promote(arg(2)))
     }
-    if cmd == "unpin" {
-        return util.println(services.brain.set_pin(arg(2), "false"))
+    if command == "demote" {
+        return print_json(services.brain.demote(arg(2)))
     }
-    if cmd == "promote" {
-        return util.println(services.brain.promote(arg(2)))
+    if command == "forget" {
+        return print_json(services.brain.forget(arg(2)))
     }
-    if cmd == "demote" {
-        return util.println(services.brain.demote(arg(2)))
+    if command == "compact" {
+        return print_json(services.brain.compact(arg(2), arg(3), arg(4)))
     }
-    if cmd == "forget" {
-        return util.println(services.brain.forget(arg(2)))
+    if command == "snapshot" {
+        return print_json(services.brain.snapshot())
     }
-    if cmd == "compact" {
-        return util.println(services.brain.compact(arg(2), arg(3), arg(4)))
+    if command == "restore" {
+        return print_json(services.brain.restore(arg(2)))
     }
-    if cmd == "snapshot" {
-        return util.println(services.brain.snapshot())
+    if command == "frame" {
+        return run_frame()
     }
-    if cmd == "restore" {
-        return util.println(services.brain.restore(arg(2)))
+    if command == "complete" {
+        return run_complete()
     }
-    if cmd == "frame" {
-        discard runtime.start_session(arg(2), arg(3), arg(4));
-        return util.println(runtime.ask(arg(2), arg(3), arg(4)))
+    if command == "replay" {
+        return print_json(runtime.replay_json(arg(2)))
     }
-    if cmd == "complete" {
-        discard runtime.start_session(arg(2), arg(3), arg(4));
-        return util.println(runtime.complete(arg(2), arg(3), arg(4)))
-    }
-    if cmd == "replay" {
-        return util.println(runtime.replay_json(arg(2)))
-    }
-    if cmd == "serve" {
+    if command == "serve" {
         return services.web.serve_forever()
     }
     return print_help()

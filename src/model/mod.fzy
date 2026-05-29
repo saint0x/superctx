@@ -1,5 +1,7 @@
 mod contracts;
 mod types;
+
 fn preflight() -> i32 {
-    contracts.preflight() return 0
+    discard contracts.preflight();
+    return 0;
 }

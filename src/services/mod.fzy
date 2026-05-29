@@ -6,6 +6,8 @@ mod planner;
 mod validator;
 mod http;
 mod web;
+
 fn boot_all() -> i32 {
-    store.ensure_state() return 0
+    discard store.ensure_state();
+    return 0;
 }

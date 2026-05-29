@@ -1,6 +1,9 @@
 fn preflight() -> i32 {
-    requires true let root = services.store.state_root() if root == "" {
+    requires true;
+    let root = services.store.state_root();
+    if root == "" {
         checkpoint()
     }
-    ensures true return 0
+    ensures true;
+    return 0;
 }

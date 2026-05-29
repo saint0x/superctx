@@ -1,41 +1,94 @@
-fn boot() -> i32 {
-    services.boot_all() return 0
-}
-fn start_session(session_id: str, workspace_id: str, request: str) -> str {
-    services.store.ensure_session(session_id) let session = model.types.session_json(session_id, workspace_id, request, request, "active", services.store.session_frame_path(session_id), services.store.now_text()) services.store.save_session(session_id, session) services.store.append_session_id(session_id) return session
-}
-fn ask(session_id: str, workspace_id: str, request: str) -> str {
+fn ensure_session_started(session_id: str, workspace_id: str, request: str) -> i32 {
     if services.store.load_session(session_id) == "" {
-        discard start_session(session_id, workspace_id, request)
+        discard start_session(session_id, workspace_id, request);
     }
-    return services.planner.compile_frame(session_id, workspace_id, request)
+    return 0;
 }
+
+fn boot() -> i32 {
+    discard services.boot_all();
+    return 0;
+}
+
+fn start_session(session_id: str, workspace_id: str, request: str) -> str {
+    discard services.store.ensure_session(session_id);
+    let session = model.types.session_json(
+        session_id,
+        workspace_id,
+        request,
+        request,
+        "active",
+        services.store.session_frame_path(session_id),
+        services.store.now_text(),
+    );
+    discard services.store.save_session(session_id, session);
+    discard services.store.append_session_id(session_id);
+    return session;
+}
+
+fn ask(session_id: str, workspace_id: str, request: str) -> str {
+    discard ensure_session_started(session_id, workspace_id, request);
+    return services.planner.compile_frame(session_id, workspace_id, request);
+}
+
+fn record_result(session_id: str, status: str, result_json: str) -> i32 {
+    discard services.store.save_trace(session_id, "adapter.result.json", result_json);
+    discard services.traces.write_inference_events(
+        session_id,
+        util.json_obj3(
+            "status",
+            json.str(status),
+            "adapter_inventory",
+            json.raw(services.adapters.list_json()),
+            "result",
+            json.raw(result_json),
+        ),
+    );
+    return 0;
+}
+
 fn complete(session_id: str, workspace_id: str, request: str) -> str {
-    let frame = ask(session_id, workspace_id, request)
-    let first = services.adapters.complete_json(session_id, frame, "")
-    let first_validation = services.validator.validate_completion_json(frame, first, "false")
-    services.store.save_trace(session_id, "validation.first.json", first_validation)
+    let frame = ask(session_id, workspace_id, request);
+    let first = services.adapters.complete_json(session_id, frame, "");
+    let first_validation = services.validator.validate_completion_json(frame, first, "false");
+    discard services.store.save_trace(session_id, "validation.first.json", first_validation);
     if json.get_str(json.parse(first_validation), "status") == "ok" {
-        services.store.save_trace(session_id, "adapter.result.json", first)
-        services.traces.write_inference_events(session_id, util.json_obj3("status", json.str("completed"), "adapter_inventory", json.raw(services.adapters.list_json()), "result", json.raw(first)))
-        return first
+        discard record_result(session_id, "completed", first);
+        return first;
     }
-    let second = services.adapters.complete_json(session_id, frame, services.validator.repair_note(frame, first, first_validation))
-    let second_validation = services.validator.validate_completion_json(frame, second, "true")
-    services.store.save_trace(session_id, "validation.final.json", second_validation)
+
+    let repair_note = services.validator.repair_note(frame, first, first_validation);
+    let second = services.adapters.complete_json(session_id, frame, repair_note);
+    let second_validation = services.validator.validate_completion_json(frame, second, "true");
+    discard services.store.save_trace(session_id, "validation.final.json", second_validation);
     if json.get_str(json.parse(second_validation), "status") == "ok" {
-        services.store.save_trace(session_id, "adapter.result.json", second)
-        services.traces.write_inference_events(session_id, util.json_obj3("status", json.str("repaired"), "adapter_inventory", json.raw(services.adapters.list_json()), "result", json.raw(second)))
-        return second
+        discard record_result(session_id, "repaired", second);
+        return second;
     }
-    let rejected = model.types.completion_json(session_id, json.get_str(json.parse(second), "adapter"), "rejected", json.get_str(json.parse(second), "model"), json.get_str(json.parse(second_validation), "reason"), json.get_str(json.parse(second), "raw_response_path"), services.store.now_text())
-    services.store.save_trace(session_id, "adapter.result.json", rejected)
-    services.traces.write_inference_events(session_id, util.json_obj3("status", json.str("rejected"), "adapter_inventory", json.raw(services.adapters.list_json()), "result", json.raw(rejected)))
-    return rejected
+
+    let rejected = model.types.completion_json(
+        session_id,
+        json.get_str(json.parse(second), "adapter"),
+        "rejected",
+        json.get_str(json.parse(second), "model"),
+        json.get_str(json.parse(second_validation), "reason"),
+        json.get_str(json.parse(second), "raw_response_path"),
+        services.store.now_text(),
+    );
+    discard record_result(session_id, "rejected", rejected);
+    return rejected;
 }
+
 fn health_json() -> str {
-    return model.types.health_json("ok", services.store.workspace_root(), str.from_i32(util.count_lines(services.store.memory_ids_text())), str.from_i32(util.count_lines(services.store.session_ids_text())), "sqlite-backed",)
+    return model.types.health_json(
+        "ok",
+        services.store.workspace_root(),
+        str.from_i32(util.count_lines(services.store.memory_ids_text())),
+        str.from_i32(util.count_lines(services.store.session_ids_text())),
+        "sqlite-backed",
+    )
 }
+
 fn replay_json(session_id: str) -> str {
     return services.traces.replay_json(session_id)
 }
