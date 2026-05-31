@@ -47,7 +47,6 @@ fn shell_eval_math(expr: str) -> str {
     let handle = proc.spawn_cmd("/bin/sh", argv, env_map, "")
     discard proc.wait(handle, 30000)
     let stdout = str.trim(proc.stdout(handle))
-    discard proc.close(handle)
     return stdout
 }
 fn exact_expected(request: str) -> str {

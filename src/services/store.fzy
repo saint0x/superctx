@@ -61,7 +61,6 @@ fn sqlite_stdout(sql: str, fallback: str) -> str {
     discard proc.wait(handle, 30000)
     let stdout = str.trim(proc.stdout(handle))
     let stderr = str.trim(proc.stderr(handle))
-    discard proc.close(handle)
     if stderr != "" { return fallback }
     if stdout == "" { return fallback }
     return stdout
@@ -76,7 +75,6 @@ fn sqlite_exec(sql: str) -> i32 {
     let handle = proc.spawn_cmd("/usr/bin/sqlite3", argv, env_map, "")
     discard proc.wait(handle, 30000)
     let stderr = str.trim(proc.stderr(handle))
-    discard proc.close(handle)
     if stderr != "" { return 13 }
     return 0
 }

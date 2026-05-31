@@ -146,7 +146,6 @@ fn curl_post_json(url: str, payload_json: str) -> str {
     let handle = proc.spawn_cmd("/usr/bin/curl", argv, env_map, "")
     discard proc.wait(handle, 120000)
     let stdout = proc.stdout(handle)
-    discard proc.close(handle)
     return stdout
 }
 fn jq_extract(path: str, query: str) -> str {
@@ -158,7 +157,6 @@ fn jq_extract(path: str, query: str) -> str {
     let handle = proc.spawn_cmd("/usr/bin/jq", argv, env_map, "")
     discard proc.wait(handle, 30000)
     let stdout = str.trim(proc.stdout(handle))
-    discard proc.close(handle)
     return stdout
 }
 fn extract_content_from_json(adapter: str, path: str) -> str {
