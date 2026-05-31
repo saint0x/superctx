@@ -1,4 +1,3 @@
-use core.proc;
 fn frame_mode(frame_json: str) -> str {
     if str.contains(frame_json, "\"task_mode\":\"exact\"") == 1 { return "exact" }
     if str.contains(frame_json, "\"task_mode\":\"local_inspect\"") == 1 { return "local_inspect" }
@@ -34,23 +33,113 @@ fn extract_math_expression(request: str) -> str {
                 break
             }
         }
-        idx += 1
+        idx = idx + 1
     }
     return str.trim(out)
 }
-fn shell_eval_math(expr: str) -> str {
+fn skip_ws(expr: str, idx: i32) -> i32 {
+    let mut out = idx
+    while out < str.len(expr) {
+        if str.slice(expr, out, out + 1) == " " {
+            out = out + 1
+        } else {
+            return out
+        }
+    }
+    return out
+}
+fn parse_number(expr: str, idx: i32) -> str {
+    let mut pos = skip_ws(expr, idx)
+    let mut sign = 1
+    if pos < str.len(expr) && str.slice(expr, pos, pos + 1) == "-" {
+        sign = 0 - 1
+        pos = pos + 1
+    }
+    let mut value: i32 = 0
+    while pos < str.len(expr) {
+        let ch = str.slice(expr, pos, pos + 1)
+        if util.is_digit(ch) == 1 {
+            value = (value * 10) + util.digit_value(ch)
+            pos = pos + 1
+        } else {
+            break
+        }
+    }
+    if sign < 0 {
+        value = 0 - value
+    }
+    return util.json_obj2("value", json.str(str.from_i32(value)), "next", json.str(str.from_i32(pos)))
+}
+fn parse_factor(expr: str, idx: i32) -> str {
+    let start = skip_ws(expr, idx)
+    if start < str.len(expr) && str.slice(expr, start, start + 1) == "(" {
+        let inner = parse_expression(expr, start + 1)
+        let next = skip_ws(expr, util.parse_i32(json.get_str(json.parse(inner), "next")))
+        return util.json_obj2("value", json.str(json.get_str(json.parse(inner), "value")), "next", json.str(str.from_i32(next + 1)))
+    }
+    return parse_number(expr, start)
+}
+fn parse_term(expr: str, idx: i32) -> str {
+    let first = json.parse(parse_factor(expr, idx))
+    let mut value = util.parse_i32(json.get_str(first, "value"))
+    let mut pos = util.parse_i32(json.get_str(first, "next"))
+    loop {
+        pos = skip_ws(expr, pos)
+        if pos >= str.len(expr) {
+            break
+        }
+        let op = str.slice(expr, pos, pos + 1)
+        if op != "*" && op != "/" && op != "%" {
+            break
+        }
+        let rhs = json.parse(parse_factor(expr, pos + 1))
+        let rhs_value = util.parse_i32(json.get_str(rhs, "value"))
+        if op == "*" {
+            value = value * rhs_value
+        } else {
+            if rhs_value == 0 { value = 0 } else {
+                if op == "/" {
+                    value = value / rhs_value
+                } else {
+                    value = value % rhs_value
+                }
+            }
+        }
+        pos = util.parse_i32(json.get_str(rhs, "next"))
+    }
+    return util.json_obj2("value", json.str(str.from_i32(value)), "next", json.str(str.from_i32(pos)))
+}
+fn parse_expression(expr: str, idx: i32) -> str {
+    let first = json.parse(parse_term(expr, idx))
+    let mut value = util.parse_i32(json.get_str(first, "value"))
+    let mut pos = util.parse_i32(json.get_str(first, "next"))
+    loop {
+        pos = skip_ws(expr, pos)
+        if pos >= str.len(expr) {
+            break
+        }
+        let op = str.slice(expr, pos, pos + 1)
+        if op != "+" && op != "-" {
+            break
+        }
+        let rhs = json.parse(parse_term(expr, pos + 1))
+        let rhs_value = util.parse_i32(json.get_str(rhs, "value"))
+        if op == "+" {
+            value = value + rhs_value
+        } else {
+            value = value - rhs_value
+        }
+        pos = util.parse_i32(json.get_str(rhs, "next"))
+    }
+    return util.json_obj2("value", json.str(str.from_i32(value)), "next", json.str(str.from_i32(pos)))
+}
+fn eval_math(expr: str) -> str {
     if expr == "" { return "" }
-    let env_map = proc.env_new()
-    let argv = proc.argv_new()
-    discard proc.argv_push(argv, "-lc")
-    discard proc.argv_push(argv, str.concat("python3 - <<'PY'\nexpr = \"", str.concat(str.replace(expr, "\"", "\\\""), "\"\nprint(eval(expr, {\"__builtins__\": {}}, {}))\nPY")))
-    let handle = proc.spawn_cmd("/bin/sh", argv, env_map, "")
-    discard proc.wait(handle, 30000)
-    let stdout = str.trim(proc.stdout(handle))
-    return stdout
+    let parsed = json.parse(parse_expression(expr, 0))
+    return json.get_str(parsed, "value")
 }
 fn exact_expected(request: str) -> str {
-    return shell_eval_math(extract_math_expression(request))
+    return eval_math(extract_math_expression(request))
 }
 fn has_workspace_path(content: str, workspace_root: str) -> i32 {
     if workspace_root != "" {

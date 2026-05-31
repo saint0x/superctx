@@ -1,0 +1,11 @@
+rpc GetHealth(req: HealthRequest) -> HealthResponse;
+rpc ListAdapters(req: AdaptersRequest) -> AdaptersResponse;
+rpc CreateSession(req: SessionCreateRequest) -> SessionResponse;
+rpc GetSession(req: SessionLookupRequest) -> SessionResponse;
+rpc CompileFrame(req: FrameRequest) -> FrameResponse;
+rpc CompleteSession(req: CompletionRequest) -> CompletionResponse;
+rpc GetTraceReplay(req: TraceReplayRequest) -> TraceReplayResponse;
+
+fn touch() -> i32 {
+    return 0
+}

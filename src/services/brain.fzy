@@ -126,7 +126,7 @@ fn maybe_push_ranked(results: ListHandle, parsed: JsonHandle, request: str, work
     if score < min_score {
         return 0
     }
-    discard list.push(results, json.raw(services.store.load_memory(memory_id(parsed))));
+    discard list.push(results, services.store.load_memory(memory_id(parsed)));
     return 0
 }
 

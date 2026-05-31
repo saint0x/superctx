@@ -4,7 +4,7 @@ fn schema_string_json() -> str {
     return util.json_obj1("type", json.str("string"))
 }
 fn schema_object_json() -> str {
-    let schema = map.new() discard map.set(schema, "type", json.str("object")) discard map.set(schema, "properties", json.raw("{}")) return json.object(schema)
+    let schema = map.new() discard map.set(schema, "type", json.str("object")) discard map.set(schema, "properties", "{}") return json.object(schema)
 }
 fn configured_or(key_a: str, key_b: str) -> str {
     let first = util.env_or(key_a, "")
@@ -73,11 +73,11 @@ fn adapter_status(adapter: str) -> str {
 }
 fn list_json() -> str {
     let items = list.new()
-    discard list.push(items, json.raw(model.types.adapter_runtime_json("DeterministicAdapter", "deterministic", "inproc", adapter_status("DeterministicAdapter"), adapter_endpoint("DeterministicAdapter"), adapter_model("DeterministicAdapter"))))
-    discard list.push(items, json.raw(model.types.adapter_runtime_json("OpenAIAdapter", "openai", "https", adapter_status("OpenAIAdapter"), adapter_endpoint("OpenAIAdapter"), adapter_model("OpenAIAdapter"))))
-    discard list.push(items, json.raw(model.types.adapter_runtime_json("OllamaAdapter", "ollama", "http", adapter_status("OllamaAdapter"), adapter_endpoint("OllamaAdapter"), adapter_model("OllamaAdapter"))))
-    discard list.push(items, json.raw(model.types.adapter_runtime_json("MLXAdapter", "mlx", "http", adapter_status("MLXAdapter"), adapter_endpoint("MLXAdapter"), adapter_model("MLXAdapter"))))
-    discard list.push(items, json.raw(model.types.adapter_runtime_json("VLLMAdapter", "vllm", "https", adapter_status("VLLMAdapter"), adapter_endpoint("VLLMAdapter"), adapter_model("VLLMAdapter"))))
+    discard list.push(items, model.types.adapter_runtime_json("DeterministicAdapter", "deterministic", "inproc", adapter_status("DeterministicAdapter"), adapter_endpoint("DeterministicAdapter"), adapter_model("DeterministicAdapter")))
+    discard list.push(items, model.types.adapter_runtime_json("OpenAIAdapter", "openai", "https", adapter_status("OpenAIAdapter"), adapter_endpoint("OpenAIAdapter"), adapter_model("OpenAIAdapter")))
+    discard list.push(items, model.types.adapter_runtime_json("OllamaAdapter", "ollama", "http", adapter_status("OllamaAdapter"), adapter_endpoint("OllamaAdapter"), adapter_model("OllamaAdapter")))
+    discard list.push(items, model.types.adapter_runtime_json("MLXAdapter", "mlx", "http", adapter_status("MLXAdapter"), adapter_endpoint("MLXAdapter"), adapter_model("MLXAdapter")))
+    discard list.push(items, model.types.adapter_runtime_json("VLLMAdapter", "vllm", "https", adapter_status("VLLMAdapter"), adapter_endpoint("VLLMAdapter"), adapter_model("VLLMAdapter")))
     return json.array(items)
 }
 fn allowed_tool_classes_json(task_mode: str) -> str {
@@ -94,17 +94,17 @@ fn blocked_tool_classes_json(task_mode: str) -> str {
 }
 fn tool_schemas_json() -> str {
     let items = list.new()
-    discard list.push(items, json.raw(model.types.tool_schema_json("brain.query", "Query durable memory across scopes.", schema_object_json(), "memory_read", "memory_records", "advisory", "none")))
-    discard list.push(items, json.raw(model.types.tool_schema_json("brain.remember", "Allocate a new memory object.", schema_object_json(), "memory_write", "memory_mutation", "authoritative", "workspace_or_session")))
-    discard list.push(items, json.raw(model.types.tool_schema_json("brain.update", "Append or replace memory content.", schema_object_json(), "memory_write", "memory_mutation", "authoritative", "workspace_or_session")))
-    discard list.push(items, json.raw(model.types.tool_schema_json("brain.pin", "Pin a memory object into hot context.", util.json_obj1("memory_id", json.raw(schema_string_json())), "memory_write", "memory_mutation", "authoritative", "session")))
-    discard list.push(items, json.raw(model.types.tool_schema_json("brain.unpin", "Remove a pin from memory.", util.json_obj1("memory_id", json.raw(schema_string_json())), "memory_write", "memory_mutation", "authoritative", "session")))
-    discard list.push(items, json.raw(model.types.tool_schema_json("brain.promote", "Raise importance and durability.", util.json_obj1("memory_id", json.raw(schema_string_json())), "memory_write", "memory_mutation", "authoritative", "workspace")))
-    discard list.push(items, json.raw(model.types.tool_schema_json("brain.demote", "Lower importance.", util.json_obj1("memory_id", json.raw(schema_string_json())), "memory_write", "memory_mutation", "authoritative", "workspace")))
-    discard list.push(items, json.raw(model.types.tool_schema_json("brain.compact", "Summarize selected memory into a new object.", schema_object_json(), "memory_write", "memory_mutation", "authoritative", "workspace")))
-    discard list.push(items, json.raw(model.types.tool_schema_json("brain.forget", "Mark a memory object forgotten.", util.json_obj1("memory_id", json.raw(schema_string_json())), "memory_write", "memory_mutation", "authoritative", "workspace")))
-    discard list.push(items, json.raw(model.types.tool_schema_json("brain.snapshot", "Capture the current brain state.", schema_object_json(), "memory_write", "snapshot", "authoritative", "global")))
-    discard list.push(items, json.raw(model.types.tool_schema_json("brain.restore", "Restore a prior brain snapshot.", schema_object_json(), "memory_write", "snapshot", "authoritative", "global")))
+    discard list.push(items, model.types.tool_schema_json("brain.query", "Query durable memory across scopes.", schema_object_json(), "memory_read", "memory_records", "advisory", "none"))
+    discard list.push(items, model.types.tool_schema_json("brain.remember", "Allocate a new memory object.", schema_object_json(), "memory_write", "memory_mutation", "authoritative", "workspace_or_session"))
+    discard list.push(items, model.types.tool_schema_json("brain.update", "Append or replace memory content.", schema_object_json(), "memory_write", "memory_mutation", "authoritative", "workspace_or_session"))
+    discard list.push(items, model.types.tool_schema_json("brain.pin", "Pin a memory object into hot context.", util.json_obj1("memory_id", schema_string_json()), "memory_write", "memory_mutation", "authoritative", "session"))
+    discard list.push(items, model.types.tool_schema_json("brain.unpin", "Remove a pin from memory.", util.json_obj1("memory_id", schema_string_json()), "memory_write", "memory_mutation", "authoritative", "session"))
+    discard list.push(items, model.types.tool_schema_json("brain.promote", "Raise importance and durability.", util.json_obj1("memory_id", schema_string_json()), "memory_write", "memory_mutation", "authoritative", "workspace"))
+    discard list.push(items, model.types.tool_schema_json("brain.demote", "Lower importance.", util.json_obj1("memory_id", schema_string_json()), "memory_write", "memory_mutation", "authoritative", "workspace"))
+    discard list.push(items, model.types.tool_schema_json("brain.compact", "Summarize selected memory into a new object.", schema_object_json(), "memory_write", "memory_mutation", "authoritative", "workspace"))
+    discard list.push(items, model.types.tool_schema_json("brain.forget", "Mark a memory object forgotten.", util.json_obj1("memory_id", schema_string_json()), "memory_write", "memory_mutation", "authoritative", "workspace"))
+    discard list.push(items, model.types.tool_schema_json("brain.snapshot", "Capture the current brain state.", schema_object_json(), "memory_write", "snapshot", "authoritative", "global"))
+    discard list.push(items, model.types.tool_schema_json("brain.restore", "Restore a prior brain snapshot.", schema_object_json(), "memory_write", "snapshot", "authoritative", "global"))
     return json.array(items)
 }
 fn provider_payload_json(adapter: str, frame_json: str, repair_note: str) -> str {
@@ -126,9 +126,9 @@ fn provider_payload_json(adapter: str, frame_json: str, repair_note: str) -> str
     let payload = map.new()
     discard map.set(payload, "model", json.str(adapter_model(adapter)))
     discard map.set(payload, "messages", json.array(messages))
-    discard map.set(payload, "temperature", json.raw("0.1"))
+    discard map.set(payload, "temperature", "0.1")
     if adapter == "OllamaAdapter" {
-        discard map.set(payload, "stream", json.raw("false"))
+        discard map.set(payload, "stream", "false")
     }
     return json.object(payload)
 }
@@ -146,6 +146,7 @@ fn curl_post_json(url: str, payload_json: str) -> str {
     let handle = proc.spawn_cmd("/usr/bin/curl", argv, env_map, "")
     discard proc.wait(handle, 120000)
     let stdout = proc.stdout(handle)
+    discard proc.close(handle)
     return stdout
 }
 fn jq_extract(path: str, query: str) -> str {
@@ -157,6 +158,7 @@ fn jq_extract(path: str, query: str) -> str {
     let handle = proc.spawn_cmd("/usr/bin/jq", argv, env_map, "")
     discard proc.wait(handle, 30000)
     let stdout = str.trim(proc.stdout(handle))
+    discard proc.close(handle)
     return stdout
 }
 fn extract_content_from_json(adapter: str, path: str) -> str {

@@ -1,4 +1,5 @@
 use core.http;
+use core.thread;
 
 fn route_request(conn: HttpHandle) -> i32 {
     let method = http.method(conn);
@@ -30,8 +31,17 @@ fn route_request(conn: HttpHandle) -> i32 {
 
 fn serve_forever() -> i32 {
     let listener_owned: HttpHandle = http.bind();
+    defer close(listener_owned);
     http.listen(listener_owned);
-    close(listener_owned);
+    loop {
+        let conn_owned: HttpHandle = http.accept();
+        timeout(1000);
+        discard http.read(conn_owned);
+        discard dispatch(conn_owned);
+        cancel();
+        checkpoint();
+        yield();
+    }
     return 0;
 }
 

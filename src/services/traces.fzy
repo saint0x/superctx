@@ -23,10 +23,10 @@ fn write_inference_events(session_id: str, details_json: str) -> i32 {
 
 fn replay_json(session_id: str) -> str {
     let payload = map.new();
-    discard map.set(payload, "session_trace", json.raw(services.store.load_trace(session_id, "session.trace.json")));
-    discard map.set(payload, "memory_diff", json.raw(services.store.load_trace(session_id, "memory.diff.json")));
-    discard map.set(payload, "context_frame", json.raw(services.store.load_trace(session_id, "context.frame.json")));
-    discard map.set(payload, "tool_events", json.raw(services.store.load_trace(session_id, "tool.events.json")));
-    discard map.set(payload, "inference_events", json.raw(services.store.load_trace(session_id, "inference.events.json")));
+    discard map.set(payload, "session_trace", services.store.load_trace(session_id, "session.trace.json"));
+    discard map.set(payload, "memory_diff", services.store.load_trace(session_id, "memory.diff.json"));
+    discard map.set(payload, "context_frame", services.store.load_trace(session_id, "context.frame.json"));
+    discard map.set(payload, "tool_events", services.store.load_trace(session_id, "tool.events.json"));
+    discard map.set(payload, "inference_events", services.store.load_trace(session_id, "inference.events.json"));
     return json.object(payload);
 }

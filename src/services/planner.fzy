@@ -165,9 +165,9 @@ fn compile_frame(session_id: str, workspace_id: str, request: str) -> str {
         session_id,
         util.json_obj2(
             "allowed_tool_classes",
-            json.raw(allowed_tool_classes),
+            allowed_tool_classes,
             "blocked_tool_classes",
-            json.raw(blocked_tool_classes),
+            blocked_tool_classes,
         ),
     );
     discard services.traces.write_inference_events(
@@ -176,16 +176,16 @@ fn compile_frame(session_id: str, workspace_id: str, request: str) -> str {
             "status",
             json.str("planned"),
             "adapter_inventory",
-            json.raw(services.adapters.list_json()),
+            services.adapters.list_json(),
             "protocol",
-            json.raw(protocol),
+            protocol,
         ),
     );
     discard services.traces.write_memory_diff(
         session_id,
         util.json_obj3(
             "selected_memory",
-            json.raw(selected_memory),
+            selected_memory,
             "workspace_id",
             json.str(workspace_id),
             "task_mode",
