@@ -58,3 +58,63 @@ fn snapshot_json(snapshot_id: str, memory_index_text: str, memory_records_text: 
 fn health_json(status: str, workspace_root: str, memory_count: str, session_count: str, backend: str) -> str {
     let payload = map.new() discard map.set(payload, "status", json.str(status)) discard map.set(payload, "workspace_root", json.str(workspace_root)) discard map.set(payload, "memory_count", json.str(memory_count)) discard map.set(payload, "session_count", json.str(session_count)) discard map.set(payload, "backend", json.str(backend)) return json.object(payload)
 }
+
+fn parse_doc(raw: str) -> JsonHandle {
+    return json.parse(if raw == "" { "{}" } else { raw })
+}
+
+fn str_field(parsed: JsonHandle, key: str) -> str {
+    return json.get_str(parsed, key)
+}
+
+fn memory_id(parsed: JsonHandle) -> str { return str_field(parsed, "id") }
+fn memory_scope(parsed: JsonHandle) -> str { return str_field(parsed, "scope") }
+fn memory_kind(parsed: JsonHandle) -> str { return str_field(parsed, "kind") }
+fn memory_content(parsed: JsonHandle) -> str { return str_field(parsed, "content") }
+fn memory_importance(parsed: JsonHandle) -> str { return str_field(parsed, "importance") }
+fn memory_confidence(parsed: JsonHandle) -> str { return str_field(parsed, "confidence") }
+fn memory_pinned(parsed: JsonHandle) -> str { return str_field(parsed, "pinned") }
+fn memory_ttl(parsed: JsonHandle) -> str { return str_field(parsed, "ttl") }
+fn memory_provenance(parsed: JsonHandle) -> str { return str_field(parsed, "provenance") }
+fn memory_workspace_id(parsed: JsonHandle) -> str { return str_field(parsed, "workspace_id") }
+fn memory_session_id(parsed: JsonHandle) -> str { return str_field(parsed, "session_id") }
+fn memory_created_at(parsed: JsonHandle) -> str { return str_field(parsed, "created_at") }
+fn memory_updated_at(parsed: JsonHandle) -> str { return str_field(parsed, "updated_at") }
+fn memory_last_accessed_at(parsed: JsonHandle) -> str { return str_field(parsed, "last_accessed_at") }
+fn memory_status(parsed: JsonHandle) -> str { return str_field(parsed, "status") }
+
+fn link_id(parsed: JsonHandle) -> str { return str_field(parsed, "id") }
+fn link_from_id(parsed: JsonHandle) -> str { return str_field(parsed, "from_id") }
+fn link_relation(parsed: JsonHandle) -> str { return str_field(parsed, "relation") }
+fn link_to_id(parsed: JsonHandle) -> str { return str_field(parsed, "to_id") }
+fn link_created_at(parsed: JsonHandle) -> str { return str_field(parsed, "created_at") }
+
+fn session_id(parsed: JsonHandle) -> str { return str_field(parsed, "session_id") }
+fn session_workspace_id(parsed: JsonHandle) -> str { return str_field(parsed, "workspace_id") }
+fn session_goal(parsed: JsonHandle) -> str { return str_field(parsed, "goal") }
+fn session_request(parsed: JsonHandle) -> str { return str_field(parsed, "request") }
+fn session_state(parsed: JsonHandle) -> str { return str_field(parsed, "state") }
+fn session_frame_path(parsed: JsonHandle) -> str { return str_field(parsed, "frame_path") }
+fn session_updated_at(parsed: JsonHandle) -> str { return str_field(parsed, "updated_at") }
+
+fn frame_user_request(parsed: JsonHandle) -> str { return str_field(parsed, "user_request") }
+
+fn completion_session_id(parsed: JsonHandle) -> str { return str_field(parsed, "session_id") }
+fn completion_adapter(parsed: JsonHandle) -> str { return str_field(parsed, "adapter") }
+fn completion_status(parsed: JsonHandle) -> str { return str_field(parsed, "status") }
+fn completion_model(parsed: JsonHandle) -> str { return str_field(parsed, "model") }
+fn completion_content(parsed: JsonHandle) -> str { return str_field(parsed, "content") }
+fn completion_raw_response_path(parsed: JsonHandle) -> str { return str_field(parsed, "raw_response_path") }
+fn completion_recorded_at(parsed: JsonHandle) -> str { return str_field(parsed, "recorded_at") }
+
+fn validation_status(parsed: JsonHandle) -> str { return str_field(parsed, "status") }
+fn validation_mode(parsed: JsonHandle) -> str { return str_field(parsed, "mode") }
+fn validation_reason(parsed: JsonHandle) -> str { return str_field(parsed, "reason") }
+fn validation_expected(parsed: JsonHandle) -> str { return str_field(parsed, "expected") }
+fn validation_observed(parsed: JsonHandle) -> str { return str_field(parsed, "observed") }
+fn validation_repaired(parsed: JsonHandle) -> str { return str_field(parsed, "repaired") }
+
+fn snapshot_id(parsed: JsonHandle) -> str { return str_field(parsed, "snapshot_id") }
+fn snapshot_memory_index_text(parsed: JsonHandle) -> str { return str_field(parsed, "memory_index_text") }
+fn snapshot_memory_records_text(parsed: JsonHandle) -> str { return str_field(parsed, "memory_records_text") }
+fn snapshot_links_text(parsed: JsonHandle) -> str { return str_field(parsed, "links_text") }

@@ -110,34 +110,34 @@ fn append_memory_id(memory_id: str) -> i32 { discard memory_id return 0 }
 fn append_link_id(link_id: str) -> i32 { discard link_id return 0 }
 fn append_session_id(session_id: str) -> i32 { discard session_id return 0 }
 fn memory_values_sql(memory_id: str, parsed: JsonHandle, payload: str) -> str {
-    return str.concat(sql_quote(memory_id), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "scope")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "kind")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "content")), str.concat(", ", str.concat(json.get_str(parsed, "importance"), str.concat(", ", str.concat(json.get_str(parsed, "confidence"), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "pinned")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "ttl")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "provenance")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "workspace_id")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "session_id")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "created_at")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "updated_at")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "last_accessed_at")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "status")), str.concat(", ", sql_quote(payload)))))))))))))))))))))))))))))
+    return str.concat(sql_quote(memory_id), str.concat(", ", str.concat(sql_quote(model.types.memory_scope(parsed)), str.concat(", ", str.concat(sql_quote(model.types.memory_kind(parsed)), str.concat(", ", str.concat(sql_quote(model.types.memory_content(parsed)), str.concat(", ", str.concat(model.types.memory_importance(parsed), str.concat(", ", str.concat(model.types.memory_confidence(parsed), str.concat(", ", str.concat(sql_quote(model.types.memory_pinned(parsed)), str.concat(", ", str.concat(sql_quote(model.types.memory_ttl(parsed)), str.concat(", ", str.concat(sql_quote(model.types.memory_provenance(parsed)), str.concat(", ", str.concat(sql_quote(model.types.memory_workspace_id(parsed)), str.concat(", ", str.concat(sql_quote(model.types.memory_session_id(parsed)), str.concat(", ", str.concat(sql_quote(model.types.memory_created_at(parsed)), str.concat(", ", str.concat(sql_quote(model.types.memory_updated_at(parsed)), str.concat(", ", str.concat(sql_quote(model.types.memory_last_accessed_at(parsed)), str.concat(", ", str.concat(sql_quote(model.types.memory_status(parsed)), str.concat(", ", sql_quote(payload)))))))))))))))))))))))))))))
 }
 fn upsert_memory_search(memory_id: str, parsed: JsonHandle) -> i32 {
     discard sqlite_exec(str.concat("DELETE FROM memory_search WHERE memory_id = ", str.concat(sql_quote(memory_id), ";")))
-    if json.get_str(parsed, "status") != "active" {
+    if model.types.memory_status(parsed) != "active" {
         return 0
     }
-    let values = str.concat(sql_quote(memory_id), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "content")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "kind")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "scope")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "workspace_id")), str.concat(", ", sql_quote(json.get_str(parsed, "session_id")))))))))))
+    let values = str.concat(sql_quote(memory_id), str.concat(", ", str.concat(sql_quote(model.types.memory_content(parsed)), str.concat(", ", str.concat(sql_quote(model.types.memory_kind(parsed)), str.concat(", ", str.concat(sql_quote(model.types.memory_scope(parsed)), str.concat(", ", str.concat(sql_quote(model.types.memory_workspace_id(parsed)), str.concat(", ", sql_quote(model.types.memory_session_id(parsed)))))))))))
     return sqlite_exec(str.concat("INSERT INTO memory_search(memory_id, content, kind, scope, workspace_id, session_id) VALUES(", str.concat(values, ");")))
 }
 fn save_memory(memory_id: str, payload: str) -> i32 {
     ensure_state()
-    let parsed = json.parse(payload)
+    let parsed = model.types.parse_doc(payload)
     let sql = str.concat("INSERT INTO memories(id, scope, kind, content, importance, confidence, pinned, ttl, provenance, workspace_id, session_id, created_at, updated_at, last_accessed_at, status, payload_json) VALUES(", str.concat(memory_values_sql(memory_id, parsed, payload), ")"))
     discard sqlite_exec(str.concat(sql, " ON CONFLICT(id) DO UPDATE SET scope=excluded.scope, kind=excluded.kind, content=excluded.content, importance=excluded.importance, confidence=excluded.confidence, pinned=excluded.pinned, ttl=excluded.ttl, provenance=excluded.provenance, workspace_id=excluded.workspace_id, session_id=excluded.session_id, created_at=excluded.created_at, updated_at=excluded.updated_at, last_accessed_at=excluded.last_accessed_at, status=excluded.status, payload_json=excluded.payload_json;"))
     return upsert_memory_search(memory_id, parsed)
 }
 fn save_link(link_id: str, payload: str) -> i32 {
     ensure_state()
-    let parsed = json.parse(payload)
-    let values = str.concat(sql_quote(link_id), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "from_id")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "relation")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "to_id")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "created_at")), str.concat(", ", sql_quote(payload))))))))))
+    let parsed = model.types.parse_doc(payload)
+    let values = str.concat(sql_quote(link_id), str.concat(", ", str.concat(sql_quote(model.types.link_from_id(parsed)), str.concat(", ", str.concat(sql_quote(model.types.link_relation(parsed)), str.concat(", ", str.concat(sql_quote(model.types.link_to_id(parsed)), str.concat(", ", str.concat(sql_quote(model.types.link_created_at(parsed)), str.concat(", ", sql_quote(payload))))))))))
     let sql = str.concat("INSERT INTO links(id, from_id, relation, to_id, created_at, payload_json) VALUES(", str.concat(values, ")"))
     return sqlite_exec(str.concat(sql, " ON CONFLICT(id) DO UPDATE SET from_id=excluded.from_id, relation=excluded.relation, to_id=excluded.to_id, created_at=excluded.created_at, payload_json=excluded.payload_json;"))
 }
 fn save_session(session_id: str, payload: str) -> i32 {
     ensure_session(session_id)
-    let parsed = json.parse(payload)
-    let values = str.concat(sql_quote(session_id), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "workspace_id")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "goal")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "request")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "state")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "frame_path")), str.concat(", ", str.concat(sql_quote(json.get_str(parsed, "updated_at")), str.concat(", ", str.concat(sql_quote(payload), ", '{}', '[]', '{}'"))))))))))))))
+    let parsed = model.types.parse_doc(payload)
+    let values = str.concat(sql_quote(session_id), str.concat(", ", str.concat(sql_quote(model.types.session_workspace_id(parsed)), str.concat(", ", str.concat(sql_quote(model.types.session_goal(parsed)), str.concat(", ", str.concat(sql_quote(model.types.session_request(parsed)), str.concat(", ", str.concat(sql_quote(model.types.session_state(parsed)), str.concat(", ", str.concat(sql_quote(model.types.session_frame_path(parsed)), str.concat(", ", str.concat(sql_quote(model.types.session_updated_at(parsed)), str.concat(", ", str.concat(sql_quote(payload), ", '{}', '[]', '{}'"))))))))))))))
     let sql = str.concat("INSERT INTO sessions(session_id, workspace_id, goal, request, state, frame_path, updated_at, payload_json, registers_json, stack_json, frame_json) VALUES(", str.concat(values, ")"))
     fs.write_file(session_doc_path(session_id), payload)
     return sqlite_exec(str.concat(sql, " ON CONFLICT(session_id) DO UPDATE SET workspace_id=excluded.workspace_id, goal=excluded.goal, request=excluded.request, state=excluded.state, frame_path=excluded.frame_path, updated_at=excluded.updated_at, payload_json=excluded.payload_json;"))

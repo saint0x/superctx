@@ -51,8 +51,9 @@ fn complete(session_id: str, workspace_id: str, request: str) -> str {
     let frame = ask(session_id, workspace_id, request);
     let first = services.adapters.complete_json(session_id, frame, "");
     let first_validation = services.validator.validate_completion_json(frame, first, "false");
+    let first_validation_parsed = model.types.parse_doc(first_validation);
     discard services.store.save_trace(session_id, "validation.first.json", first_validation);
-    if json.get_str(json.parse(first_validation), "status") == "ok" {
+    if model.types.validation_status(first_validation_parsed) == "ok" {
         discard record_result(session_id, "completed", first);
         return first;
     }
@@ -60,19 +61,21 @@ fn complete(session_id: str, workspace_id: str, request: str) -> str {
     let repair_note = services.validator.repair_note(frame, first, first_validation);
     let second = services.adapters.complete_json(session_id, frame, repair_note);
     let second_validation = services.validator.validate_completion_json(frame, second, "true");
+    let second_parsed = model.types.parse_doc(second);
+    let second_validation_parsed = model.types.parse_doc(second_validation);
     discard services.store.save_trace(session_id, "validation.final.json", second_validation);
-    if json.get_str(json.parse(second_validation), "status") == "ok" {
+    if model.types.validation_status(second_validation_parsed) == "ok" {
         discard record_result(session_id, "repaired", second);
         return second;
     }
 
     let rejected = model.types.completion_json(
         session_id,
-        json.get_str(json.parse(second), "adapter"),
+        model.types.completion_adapter(second_parsed),
         "rejected",
-        json.get_str(json.parse(second), "model"),
-        json.get_str(json.parse(second_validation), "reason"),
-        json.get_str(json.parse(second), "raw_response_path"),
+        model.types.completion_model(second_parsed),
+        model.types.validation_reason(second_validation_parsed),
+        model.types.completion_raw_response_path(second_parsed),
         services.store.now_text(),
     );
     discard record_result(session_id, "rejected", rejected);

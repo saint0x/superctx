@@ -4,13 +4,13 @@ test "det_boot_and_health" {
     }
 }
 test "det_memory_roundtrip" {
-    runtime.boot() let created = services.brain.remember("workspace", "fact", "planner uses scoped memory", 8, 9, 1, "persistent", "test", "workspace", "test-session") let created_parsed = json.parse(created) let memory_id = json.get_str(created_parsed, "id") if memory_id == "" {
+    runtime.boot() let created = services.brain.remember("workspace", "fact", "planner uses scoped memory", 8, 9, 1, "persistent", "test", "workspace", "test-session") let created_parsed = model.types.parse_doc(created) let memory_id = model.types.memory_id(created_parsed) if memory_id == "" {
         checkpoint()
     }
-    let pinned = services.brain.set_pin(memory_id, "true") if json.get_str(json.parse(pinned), "pinned") != "true" {
+    let pinned = services.brain.set_pin(memory_id, "true") if model.types.memory_pinned(model.types.parse_doc(pinned)) != "true" {
         checkpoint()
     }
-    let frame = runtime.ask("test-session", "workspace", "inspect the repo with local file tools and cite exact repo paths") let parsed = json.parse(frame) if json.get_str(parsed, "user_request") == "" {
+    let frame = runtime.ask("test-session", "workspace", "inspect the repo with local file tools and cite exact repo paths") let parsed = model.types.parse_doc(frame) if model.types.frame_user_request(parsed) == "" {
         checkpoint()
     }
     if str.contains(frame, "\"task_mode\":\"local_inspect\"") == 0 {
@@ -21,7 +21,7 @@ test "det_memory_roundtrip" {
     }
 }
 test "det_snapshot_restore" {
-    runtime.boot() discard services.brain.remember("global", "fact", "user prefers deterministic traces", 7, 8, 0, "persistent", "test", "workspace", "snap-session") let snapshot = services.brain.snapshot() let snapshot_id = json.get_str(json.parse(snapshot), "snapshot_id") let restored = services.brain.restore(snapshot_id) if json.get_str(json.parse(restored), "status") != "ok" {
+    runtime.boot() discard services.brain.remember("global", "fact", "user prefers deterministic traces", 7, 8, 0, "persistent", "test", "workspace", "snap-session") let snapshot = services.brain.snapshot() let snapshot_id = model.types.snapshot_id(model.types.parse_doc(snapshot)) let restored = services.brain.restore(snapshot_id) if model.types.str_field(model.types.parse_doc(restored), "status") != "ok" {
         checkpoint()
     }
 }

@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -11,8 +12,18 @@ from pathlib import Path
 ROOT = Path("/Users/deepsaint/Desktop/superctx")
 ARENA = ROOT / "arena"
 RUNS = ARENA / "runs"
+MODEL_PROVIDER = os.environ.get("SUPERCTX_MODEL_PROVIDER", "openai")
 MODEL_BASE = os.environ.get("SUPERCTX_MODEL_BASE", "http://127.0.0.1:1234")
 MODEL_NAME = os.environ.get("SUPERCTX_MODEL_NAME", "liquid/lfm2.5-1.2b")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", MODEL_NAME)
+OPENROUTER_BASE = os.environ.get("OPENROUTER_BASE", "https://openrouter.ai/api/v1")
+OPENROUTER_MAX_RETRIES = int(os.environ.get("OPENROUTER_MAX_RETRIES", "6"))
+OPENROUTER_MIN_BACKOFF_SECS = float(os.environ.get("OPENROUTER_MIN_BACKOFF_SECS", "2"))
+OPENROUTER_MAX_BACKOFF_SECS = float(os.environ.get("OPENROUTER_MAX_BACKOFF_SECS", "60"))
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", MODEL_NAME)
+ANTHROPIC_MAX_TOKENS = int(os.environ.get("ANTHROPIC_MAX_TOKENS", "4096"))
 AEGIS_BASE = os.environ.get("SUPERCTX_AEGIS_BASE", "http://127.0.0.1:7878")
 SYSTEM_PROMPT = (ROOT / "config" / "fzl_system_prompt.md").read_text()
 
@@ -21,15 +32,57 @@ def ensure_dirs():
     RUNS.mkdir(parents=True, exist_ok=True)
 
 
-def post_json(url: str, payload: dict, timeout: int = 120) -> dict:
+def clamp_backoff(seconds: float) -> float:
+    return max(OPENROUTER_MIN_BACKOFF_SECS, min(seconds, OPENROUTER_MAX_BACKOFF_SECS))
+
+
+def compute_retry_delay(attempt: int, error: urllib.error.HTTPError | None = None) -> float:
+    if error is not None:
+        retry_after = error.headers.get("Retry-After")
+        if retry_after:
+            try:
+                return clamp_backoff(float(retry_after))
+            except ValueError:
+                pass
+    return clamp_backoff(OPENROUTER_MIN_BACKOFF_SECS * (2 ** max(0, attempt - 1)))
+
+
+def post_json(url: str, payload: dict, timeout: int = 120, headers: dict | None = None) -> dict:
+    request_headers = {"Content-Type": "application/json"}
+    if headers:
+        request_headers.update(headers)
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers=request_headers,
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+def post_json_with_retry(
+    url: str,
+    payload: dict,
+    timeout: int = 120,
+    headers: dict | None = None,
+    retries: int = 0,
+) -> dict:
+    attempt = 0
+    while True:
+        try:
+            return post_json(url, payload, timeout=timeout, headers=headers)
+        except urllib.error.HTTPError as exc:
+            attempt += 1
+            if attempt > retries or exc.code not in (408, 409, 425, 429, 500, 502, 503, 504):
+                body = exc.read().decode("utf-8", errors="replace")
+                raise RuntimeError(f"http_error {exc.code}: {body}") from exc
+            time.sleep(compute_retry_delay(attempt, exc))
+        except urllib.error.URLError as exc:
+            attempt += 1
+            if attempt > retries:
+                raise RuntimeError(f"url_error: {exc}") from exc
+            time.sleep(compute_retry_delay(attempt))
 
 
 def get_json(url: str, timeout: int = 120) -> dict:
@@ -239,6 +292,20 @@ ALL_TOOLS = {
 }
 
 
+def anthropic_tools_from_openai(openai_tools: list) -> list:
+    converted = []
+    for tool in openai_tools:
+        fn = tool["function"]
+        converted.append(
+            {
+                "name": fn["name"],
+                "description": fn["description"],
+                "input_schema": fn["parameters"],
+            }
+        )
+    return converted
+
+
 def call_tool(name: str, arguments: dict) -> dict:
     if name == "list_dir":
         return list_dir(arguments["path"])
@@ -361,30 +428,49 @@ def authoritative_requirement(task: dict, tool_results: list) -> str | None:
     return None
 
 
-def run_task(task: dict) -> dict:
+def usage_from_openai(response: dict) -> dict:
+    usage = response.get("usage") or {}
+    return {
+        "input_tokens": int(usage.get("prompt_tokens", 0)),
+        "output_tokens": int(usage.get("completion_tokens", 0)),
+        "total_tokens": int(usage.get("total_tokens", 0)),
+    }
+
+
+def usage_from_anthropic(response: dict) -> dict:
+    usage = response.get("usage") or {}
+    input_tokens = int(usage.get("input_tokens", 0))
+    output_tokens = int(usage.get("output_tokens", 0))
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": input_tokens + output_tokens,
+    }
+
+
+def usage_from_openrouter(response: dict) -> dict:
+    return usage_from_openai(response)
+
+
+def run_task_openai(task: dict) -> dict:
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "system", "content": policy_message(task)},
-        {
-            "role": "user",
-            "content": task["prompt"],
-        },
+        {"role": "user", "content": task["prompt"]},
     ]
     tools = build_tools(task)
     used_tools = []
     tool_results = []
+    usage_log = []
     final_text = ""
 
     for _ in range(4):
-        payload = {
-            "model": MODEL_NAME,
-            "messages": messages,
-            "temperature": 0.1,
-        }
+        payload = {"model": MODEL_NAME, "messages": messages, "temperature": 0.1}
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
         response = post_json(f"{MODEL_BASE}/v1/chat/completions", payload, timeout=90)
+        usage_log.append(usage_from_openai(response))
         choice = response["choices"][0]["message"]
         messages.append(choice)
         tool_calls = choice.get("tool_calls") or []
@@ -410,26 +496,190 @@ def run_task(task: dict) -> dict:
         final_text = (choice.get("content") or "").strip()
         break
 
+    return {
+        "messages": messages,
+        "used_tools": used_tools,
+        "tool_results": tool_results,
+        "final_text": final_text,
+        "usage_log": usage_log,
+    }
+
+
+def run_task_openrouter(task: dict) -> dict:
+    if not OPENROUTER_API_KEY:
+        raise RuntimeError("missing OPENROUTER_API_KEY")
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": policy_message(task)},
+        {"role": "user", "content": task["prompt"]},
+    ]
+    tools = build_tools(task)
+    used_tools = []
+    tool_results = []
+    usage_log = []
+    final_text = ""
+
+    for _ in range(4):
+        payload = {"model": OPENROUTER_MODEL, "messages": messages, "temperature": 0.1}
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+        response = post_json_with_retry(
+            f"{OPENROUTER_BASE}/chat/completions",
+            payload,
+            timeout=120,
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "HTTP-Referer": "https://superctx.local",
+                "X-Title": "superctx-arena",
+            },
+            retries=OPENROUTER_MAX_RETRIES,
+        )
+        usage_log.append(usage_from_openrouter(response))
+        choice = response["choices"][0]["message"]
+        messages.append(choice)
+        tool_calls = choice.get("tool_calls") or []
+        if tool_calls:
+            for call in tool_calls:
+                name = call["function"]["name"]
+                args = json.loads(call["function"]["arguments"] or "{}")
+                if task.get("allowed_tools") is not None and name not in task.get("allowed_tools", []):
+                    result = {"status": "error", "message": f"tool_not_allowed: {name}", "authoritative": True}
+                else:
+                    result = call_tool(name, args)
+                used_tools.append(name)
+                tool_results.append({"name": name, "arguments": args, "result": result})
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call["id"],
+                        "name": name,
+                        "content": json.dumps(result),
+                    }
+                )
+            continue
+        final_text = (choice.get("content") or "").strip()
+        break
+
+    return {
+        "messages": messages,
+        "used_tools": used_tools,
+        "tool_results": tool_results,
+        "final_text": final_text,
+        "usage_log": usage_log,
+    }
+
+
+def run_task_anthropic(task: dict) -> dict:
+    if not ANTHROPIC_API_KEY:
+        raise RuntimeError("missing ANTHROPIC_API_KEY")
+    system_text = SYSTEM_PROMPT + "\n\n" + policy_message(task)
+    messages = [{"role": "user", "content": [{"type": "text", "text": task["prompt"]}]}]
+    tools = anthropic_tools_from_openai(build_tools(task))
+    used_tools = []
+    tool_results = []
+    usage_log = []
+    final_text = ""
+
+    for _ in range(4):
+        payload = {
+            "model": ANTHROPIC_MODEL,
+            "max_tokens": ANTHROPIC_MAX_TOKENS,
+            "system": system_text,
+            "messages": messages,
+        }
+        if tools:
+            payload["tools"] = tools
+        response = post_json(
+            "https://api.anthropic.com/v1/messages",
+            payload,
+            timeout=120,
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+            },
+        )
+        usage_log.append(usage_from_anthropic(response))
+        content_blocks = response.get("content") or []
+        assistant_message = {"role": "assistant", "content": content_blocks}
+        messages.append(assistant_message)
+        tool_blocks = [block for block in content_blocks if block.get("type") == "tool_use"]
+        if tool_blocks:
+            user_content = []
+            for block in tool_blocks:
+                name = block["name"]
+                args = block.get("input") or {}
+                if task.get("allowed_tools") is not None and name not in task.get("allowed_tools", []):
+                    result = {"status": "error", "message": f"tool_not_allowed: {name}", "authoritative": True}
+                else:
+                    result = call_tool(name, args)
+                used_tools.append(name)
+                tool_results.append({"name": name, "arguments": args, "result": result})
+                user_content.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block["id"],
+                        "content": json.dumps(result),
+                    }
+                )
+            messages.append({"role": "user", "content": user_content})
+            continue
+        text_parts = [block.get("text", "") for block in content_blocks if block.get("type") == "text"]
+        final_text = "".join(text_parts).strip()
+        break
+
+    return {
+        "messages": messages,
+        "used_tools": used_tools,
+        "tool_results": tool_results,
+        "final_text": final_text,
+        "usage_log": usage_log,
+    }
+
+
+def run_task(task: dict) -> dict:
+    if MODEL_PROVIDER == "anthropic":
+        provider_result = run_task_anthropic(task)
+        model_name = ANTHROPIC_MODEL
+    elif MODEL_PROVIDER == "openrouter":
+        provider_result = run_task_openrouter(task)
+        model_name = OPENROUTER_MODEL
+    else:
+        provider_result = run_task_openai(task)
+        model_name = MODEL_NAME
+
+    final_text = provider_result["final_text"]
     lowered = final_text.lower()
     expected_hits = [needle for needle in task.get("expects", []) if needle.lower() in lowered]
     must_use = task.get("must_use", [])
-    tool_ok = all(tool in used_tools for tool in must_use)
-    exact_required = authoritative_requirement(task, tool_results)
+    tool_ok = all(tool in provider_result["used_tools"] for tool in must_use)
+    exact_required = authoritative_requirement(task, provider_result["tool_results"])
     exact_ok = exact_required is None or final_text == exact_required
     expect_ok = len(expected_hits) == len(task.get("expects", []))
     status = "pass" if tool_ok and exact_ok and expect_ok else "review"
+    input_tokens = sum(item["input_tokens"] for item in provider_result["usage_log"])
+    output_tokens = sum(item["output_tokens"] for item in provider_result["usage_log"])
+    total_tokens = sum(item["total_tokens"] for item in provider_result["usage_log"])
     return {
         "task": task["id"],
         "mode": task["mode"],
+        "provider": MODEL_PROVIDER,
+        "model": model_name,
         "status": status,
-        "used_tools": used_tools,
-        "tool_results": tool_results,
+        "used_tools": provider_result["used_tools"],
+        "tool_results": provider_result["tool_results"],
         "expected_hits": expected_hits,
         "missing_expectations": [x for x in task.get("expects", []) if x not in expected_hits],
         "exact_required": exact_required,
         "exact_ok": exact_ok,
         "final_text": final_text,
-        "messages": messages,
+        "usage_log": provider_result["usage_log"],
+        "token_usage": {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total_tokens,
+        },
+        "messages": provider_result["messages"],
     }
 
 
@@ -448,6 +698,14 @@ def main() -> int:
             result = {
                 "task": task["id"],
                 "mode": task["mode"],
+                "provider": MODEL_PROVIDER,
+                "model": (
+                    ANTHROPIC_MODEL
+                    if MODEL_PROVIDER == "anthropic"
+                    else OPENROUTER_MODEL
+                    if MODEL_PROVIDER == "openrouter"
+                    else MODEL_NAME
+                ),
                 "status": "error",
                 "used_tools": [],
                 "tool_results": [],
@@ -456,15 +714,38 @@ def main() -> int:
                 "exact_required": None,
                 "exact_ok": False,
                 "final_text": "",
+                "usage_log": [],
+                "token_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
                 "error": str(exc),
                 "messages": [],
             }
         summary.append(result)
         (out_dir / f"{task['id']}.json").write_text(json.dumps(result, indent=2))
         print(f"{task['id']}: {result['status']}")
-    (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
+
     passed = sum(1 for item in summary if item["status"] == "pass")
-    print(json.dumps({"run_dir": str(out_dir), "passed": passed, "total": len(summary)}, indent=2))
+    aggregate_usage = {
+        "input_tokens": sum(item["token_usage"]["input_tokens"] for item in summary),
+        "output_tokens": sum(item["token_usage"]["output_tokens"] for item in summary),
+        "total_tokens": sum(item["token_usage"]["total_tokens"] for item in summary),
+    }
+    run_summary = {
+        "provider": MODEL_PROVIDER,
+        "model": (
+            ANTHROPIC_MODEL
+            if MODEL_PROVIDER == "anthropic"
+            else OPENROUTER_MODEL
+            if MODEL_PROVIDER == "openrouter"
+            else MODEL_NAME
+        ),
+        "run_dir": str(out_dir),
+        "passed": passed,
+        "total": len(summary),
+        "token_usage": aggregate_usage,
+    }
+    (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
+    (out_dir / "run_summary.json").write_text(json.dumps(run_summary, indent=2))
+    print(json.dumps(run_summary, indent=2))
     return 0
 
 

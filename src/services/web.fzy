@@ -1,5 +1,12 @@
 use core.http;
 use core.thread;
+fn listener_addr() -> str {
+    let configured = env.get("SUPERCTX_ADDR")
+    if configured != "" {
+        return configured
+    }
+    return "127.0.0.1:8789"
+}
 
 fn route_request(conn: HttpHandle) -> i32 {
     let method = http.method(conn);
@@ -30,7 +37,7 @@ fn route_request(conn: HttpHandle) -> i32 {
 }
 
 fn serve_forever() -> i32 {
-    let listener_owned: HttpHandle = http.bind();
+    let listener_owned: HttpHandle = http.bind(listener_addr());
     defer close(listener_owned);
     http.listen(listener_owned);
     loop {

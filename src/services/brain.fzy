@@ -8,58 +8,58 @@ fn pinned_text(current: str) -> str {
     return "false"
 }
 fn memory_scope(parsed: JsonHandle) -> str {
-    return json.get_str(parsed, "scope")
+    return model.types.memory_scope(parsed)
 }
 fn memory_kind(parsed: JsonHandle) -> str {
-    return json.get_str(parsed, "kind")
+    return model.types.memory_kind(parsed)
 }
 fn memory_content(parsed: JsonHandle) -> str {
-    return json.get_str(parsed, "content")
+    return model.types.memory_content(parsed)
 }
 fn memory_importance(parsed: JsonHandle) -> i32 {
-    return util.parse_i32(json.get_str(parsed, "importance"))
+    return util.parse_i32(model.types.memory_importance(parsed))
 }
 fn memory_confidence(parsed: JsonHandle) -> i32 {
-    return util.parse_i32(json.get_str(parsed, "confidence"))
+    return util.parse_i32(model.types.memory_confidence(parsed))
 }
 fn memory_pinned(parsed: JsonHandle) -> str {
-    return pinned_text(json.get_str(parsed, "pinned"))
+    return pinned_text(model.types.memory_pinned(parsed))
 }
 fn memory_ttl(parsed: JsonHandle) -> str {
-    return json.get_str(parsed, "ttl")
+    return model.types.memory_ttl(parsed)
 }
 fn memory_provenance(parsed: JsonHandle) -> str {
-    return json.get_str(parsed, "provenance")
+    return model.types.memory_provenance(parsed)
 }
 fn memory_workspace_id(parsed: JsonHandle) -> str {
-    return json.get_str(parsed, "workspace_id")
+    return model.types.memory_workspace_id(parsed)
 }
 fn memory_session_id(parsed: JsonHandle) -> str {
-    return json.get_str(parsed, "session_id")
+    return model.types.memory_session_id(parsed)
 }
 fn memory_created_at(parsed: JsonHandle) -> str {
-    return json.get_str(parsed, "created_at")
+    return model.types.memory_created_at(parsed)
 }
 fn memory_status(parsed: JsonHandle) -> str {
-    return json.get_str(parsed, "status")
+    return model.types.memory_status(parsed)
 }
 fn memory_id(parsed: JsonHandle) -> str {
-    return json.get_str(parsed, "id")
+    return model.types.memory_id(parsed)
 }
 fn memory_json_with(parsed: JsonHandle, content: str, importance: str, pinned: str, scope: str, status: str) -> str {
-    let now = services.store.now_text() return model.types.memory_json(memory_id(parsed), scope, memory_kind(parsed), content, importance, json.get_str(parsed, "confidence"), pinned, memory_ttl(parsed), memory_provenance(parsed), memory_workspace_id(parsed), memory_session_id(parsed), memory_created_at(parsed), now, now, status,)
+    let now = services.store.now_text() return model.types.memory_json(memory_id(parsed), scope, memory_kind(parsed), content, importance, model.types.memory_confidence(parsed), pinned, memory_ttl(parsed), memory_provenance(parsed), memory_workspace_id(parsed), memory_session_id(parsed), memory_created_at(parsed), now, now, status,)
 }
 fn remember(scope: str, kind: str, content: str, importance: i32, confidence: i32, pinned: i32, ttl: str, provenance: str, workspace_id: str, session_id: str) -> str {
     services.store.ensure_state() let memory_id = services.store.next_memory_id() let now = services.store.now_text() let payload = model.types.memory_json(memory_id, scope, kind, content, str.from_i32(importance), str.from_i32(confidence), util.bool_text(pinned), ttl, provenance, workspace_id, session_id, now, now, now, active_status(),) services.store.save_memory(memory_id, payload) services.store.append_memory_id(memory_id) return payload
 }
 fn load_memory_parsed(memory_id: str) -> JsonHandle {
-    return json.parse(services.store.load_memory(memory_id))
+    return model.types.parse_doc(services.store.load_memory(memory_id))
 }
 fn update_memory(memory_id: str, content: str) -> str {
-    let parsed = load_memory_parsed(memory_id) let payload = memory_json_with(parsed, content, json.get_str(parsed, "importance"), memory_pinned(parsed), memory_scope(parsed), active_status()) services.store.save_memory(memory_id, payload) return payload
+    let parsed = load_memory_parsed(memory_id) let payload = memory_json_with(parsed, content, model.types.memory_importance(parsed), memory_pinned(parsed), memory_scope(parsed), active_status()) services.store.save_memory(memory_id, payload) return payload
 }
 fn set_pin(memory_id: str, pinned: str) -> str {
-    let parsed = load_memory_parsed(memory_id) let payload = memory_json_with(parsed, memory_content(parsed), json.get_str(parsed, "importance"), pinned, memory_scope(parsed), active_status()) services.store.save_memory(memory_id, payload) return payload
+    let parsed = load_memory_parsed(memory_id) let payload = memory_json_with(parsed, memory_content(parsed), model.types.memory_importance(parsed), pinned, memory_scope(parsed), active_status()) services.store.save_memory(memory_id, payload) return payload
 }
 fn promote(memory_id: str) -> str {
     let parsed = load_memory_parsed(memory_id) let next_importance = str.from_i32(memory_importance(parsed) + 1) let next_scope = if memory_scope(parsed) == "short_term" {
@@ -197,10 +197,10 @@ fn restore(snapshot_id: str) -> str {
     if raw == "" {
         return util.json_obj2("status", json.str("error"), "message", json.str("snapshot_not_found"))
     }
-    let parsed = json.parse(raw);
-    let memory_index_text = json.get_str(parsed, "memory_index_text");
-    let memory_records_text = json.get_str(parsed, "memory_records_text");
-    let links_text = json.get_str(parsed, "links_text");
+    let parsed = model.types.parse_doc(raw);
+    let memory_index_text = model.types.snapshot_memory_index_text(parsed);
+    let memory_records_text = model.types.snapshot_memory_records_text(parsed);
+    let links_text = model.types.snapshot_links_text(parsed);
     discard memory_index_text;
     discard services.store.clear_memory_records();
     discard services.store.clear_link_records();
@@ -208,7 +208,7 @@ fn restore(snapshot_id: str) -> str {
     while remaining != "" {
         let line = util.first_line(remaining);
         if line != "" {
-            let memory = json.parse(line);
+            let memory = model.types.parse_doc(line);
             services.store.save_memory(memory_id(memory), line)
         }
         remaining = util.drop_first_line(remaining)
@@ -217,8 +217,8 @@ fn restore(snapshot_id: str) -> str {
     while remaining_links != "" {
         let line = util.first_line(remaining_links);
         if line != "" {
-            let link_parsed = json.parse(line);
-            let link_id = json.get_str(link_parsed, "id");
+            let link_parsed = model.types.parse_doc(line);
+            let link_id = model.types.link_id(link_parsed);
             services.store.save_link(link_id, line)
         }
         remaining_links = util.drop_first_line(remaining_links)
@@ -229,7 +229,7 @@ fn compact(workspace_id: str, session_id: str, request: str) -> str {
     let selected_ids = query_ids_text(request, workspace_id, session_id, 3);
     let summary = remember("workspace", "summary", str.concat("Compacted context for request: ", request), 9, 9, 1, "persistent", "brain.compact", workspace_id, session_id);
     let mut remaining = selected_ids;
-    let summary_id = json.get_str(json.parse(summary), "id");
+    let summary_id = model.types.memory_id(model.types.parse_doc(summary));
     while remaining != "" {
         let current_id = util.first_line(remaining);
         if current_id != "" {
