@@ -157,7 +157,7 @@ fn compact_prompt_from_frame(frame_json: str) -> str {
     return str.concat(
         "superctx memory pack v1\n",
         str.concat(
-            "Use selected memory as the authoritative external context. Prefer higher importance/confidence. Ignore stale or distractor records when better records conflict. If the answer_contract asks for an exact or literal answer, return only that value. Return only the final answer; do not include <think> blocks.\n\n",
+            "Use selected memory as the authoritative external context. Prefer higher importance/confidence. Ignore stale or distractor records when better records conflict. If the answer_contract asks for an exact or literal answer, return only that value. For commands, markers, phrases, codenames, and CLI names, copy the value itself, not the surrounding label, and remove trailing sentence punctuation unless it is part of the value. Return only the final answer; do not include <think> blocks.\n\n",
             str.concat(
                 "mode: ",
                 str.concat(

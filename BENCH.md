@@ -43,6 +43,55 @@ python3 arena/run_local_sock_product_bench.py \
 
 Results should be appended below after each production run.
 
+## 2026-07-19 - GMK Qwen3 30B Expanded Adversarial Runtime Bench
+
+Environment:
+
+- Engine: `sock` serving `Qwen/Qwen3-30B-A3B-GPTQ-Int4`
+- Hardware: GMK Strix Halo / ROCm WSL
+- Endpoint: `http://127.0.0.1:8000/v1/chat/completions`
+- Server shape: `--max-model-len 4096`, `--gpu-memory-utilization 0.72`, `--enforce-eager`
+- Harness run: `/home/deepsaint/work/superctx/arena/runs/20260719-200833-local-sock-product-bench`
+- Label: `gmk-qwen3-30b-4096-expanded-adversarial-v6`
+
+Suite expansion:
+
+- Expanded from 4 to 12 scenarios covering exact tool contracts, local path grounding, distractor pressure, cross-round recall, scoped workspace override, canonical build command recall, unknown-secret refusal, stale high-noise conflict, ordered recovery runbooks, multi-hop synthesis, stale-tooling rejection, and session-over-workspace precedence.
+- Added explicit tie accounting so equal top scores are recorded as shared wins instead of falling through to dictionary order.
+- Tightened compact-prompt exact-answer copying for commands, markers, phrases, codenames, and CLI names.
+
+Summary:
+
+| Variant | Wins | Ties | Mean score | Mean latency |
+| --- | ---: | ---: | ---: | ---: |
+| `raw` | 0 | 0 | -1.00 | 5.118s |
+| `naive_memory` | 0 | 2 | -0.25 | 5.026s |
+| `superctx` | 10 | 2 | 3.25 | 1.177s |
+
+Scenario winners:
+
+| Scenario | Winner |
+| --- | --- |
+| exact tool contract | `superctx` |
+| local grounded paths | `superctx` |
+| context budget under distractors | `superctx` |
+| cross-round recall | tie: `naive_memory`, `superctx` |
+| scoped workspace override | `superctx` |
+| canonical build contract | `superctx` |
+| negative no invention | `superctx` |
+| stale high-noise conflict | `superctx` |
+| ordered recovery runbook | `superctx` |
+| multi-hop synthesis | tie: `naive_memory`, `superctx` |
+| stale tooling rejection | `superctx` |
+| session vs workspace precedence | `superctx` |
+
+Interpretation:
+
+- Reality: the memory-pack thesis now holds under a broader adversarial suite, not just a small four-case smoke bench.
+- Reality: `superctx` is both higher quality and faster here: 10 outright wins, 2 ties, and about 4.27x lower mean latency than naive memory stuffing.
+- Reality: the two ties are honest and useful. When the naive prompt has exactly the right compact facts and no harmful conflict, it can match quality, but it still does not beat the `superctx` runtime.
+- Current claim: on the local Qwen3 30B sock endpoint, `superctx` materially improves context fidelity and latency versus raw prompting and naive memory stuffing under exact-answer, stale-memory, scoping, and operational-recall pressure.
+
 ## 2026-07-19 - GMK Qwen3 30B Optimized Compact Runtime Bench
 
 Environment:

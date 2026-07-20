@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -173,6 +174,118 @@ SCENARIOS = [
         max_tokens=192,
     ),
 ]
+
+SCENARIOS.extend(
+    [
+        Scenario(
+            scenario_id="scoped_workspace_override",
+            thesis_axis="scope-aware durable recall",
+            request="What is the current workspace codename? Answer with the codename only.",
+            memories=[
+                {"scope": "workspace", "kind": "fact", "importance": 10, "confidence": 10, "content": "The current workspace codename is marble-harbor."},
+                {"scope": "global", "kind": "distractor", "importance": 4, "confidence": 4, "content": "A stale global codename from another project was black-sun."},
+            ],
+            expected=["marble-harbor"],
+            forbidden=["black-sun"],
+            exact="marble-harbor",
+            max_tokens=96,
+        ),
+        Scenario(
+            scenario_id="canonical_build_contract",
+            thesis_axis="local developer contract recall",
+            request="Which build command is canonical for this workspace? Answer with the exact command only.",
+            memories=[
+                {"scope": "workspace", "kind": "policy", "importance": 10, "confidence": 10, "content": "Canonical build command: fz build --backend cranelift"},
+                {"scope": "workspace", "kind": "distractor", "importance": 2, "confidence": 2, "content": "Deprecated build command: npm run build."},
+                {"scope": "global", "kind": "distractor", "importance": 1, "confidence": 1, "content": "Generic JavaScript projects often use pnpm build."},
+            ],
+            expected=["fz build --backend cranelift"],
+            forbidden=["npm run build", "pnpm"],
+            exact="fz build --backend cranelift",
+            max_tokens=96,
+        ),
+        Scenario(
+            scenario_id="negative_no_invention",
+            thesis_axis="unknown-answer discipline",
+            request="What is the secret launch password? If it is not recorded in memory, answer NOT RECORDED exactly.",
+            memories=[
+                {"scope": "workspace", "kind": "policy", "importance": 10, "confidence": 10, "content": "When a requested credential or secret is not explicitly recorded, answer NOT RECORDED and do not invent it."},
+                {"scope": "workspace", "kind": "fact", "importance": 6, "confidence": 8, "content": "Recorded non-secret release phrase: orchid-17."},
+            ],
+            expected=["NOT RECORDED"],
+            forbidden=["orchid-17", "password", "secret is"],
+            exact="NOT RECORDED",
+            max_tokens=96,
+        ),
+        Scenario(
+            scenario_id="stale_high_noise_conflict",
+            thesis_axis="conflict resolution under noisy memory",
+            request="Name the active inference server and model family in one sentence. Ignore deprecated notes.",
+            memories=[
+                {"scope": "workspace", "kind": "fact", "importance": 10, "confidence": 10, "content": "Active inference server is local sock."},
+                {"scope": "workspace", "kind": "fact", "importance": 10, "confidence": 10, "content": "Active model family is Qwen3 30B GPTQ."},
+                {"scope": "workspace", "kind": "distractor", "importance": 9, "confidence": 1, "content": "Deprecated high-visibility note: active server is OpenRouter running GPT-OSS."},
+                {"scope": "global", "kind": "distractor", "importance": 8, "confidence": 1, "content": "Old hosted inference path used Anthropic Claude."},
+            ],
+            expected=["sock", "Qwen3", "30B"],
+            forbidden=["OpenRouter", "GPT-OSS", "Claude"],
+            max_tokens=160,
+        ),
+        Scenario(
+            scenario_id="ordered_recovery_runbook",
+            thesis_axis="format and operations discipline",
+            request="Give a three-step numbered recovery runbook for validating local inference. Include endpoint health, model identity, and rerunning the benchmark.",
+            memories=[
+                {"scope": "workspace", "kind": "policy", "importance": 10, "confidence": 10, "content": "Local inference health check: curl http://127.0.0.1:8000/v1/models."},
+                {"scope": "workspace", "kind": "policy", "importance": 9, "confidence": 9, "content": "Model identity expected from the endpoint: Qwen/Qwen3-30B-A3B-GPTQ-Int4."},
+                {"scope": "workspace", "kind": "policy", "importance": 9, "confidence": 9, "content": "Recovery proof command: python3 arena/run_local_sock_product_bench.py --base-url http://127.0.0.1:8000 --model Qwen/Qwen3-30B-A3B-GPTQ-Int4."},
+            ],
+            expected=["1.", "2.", "3.", "/v1/models", "Qwen/Qwen3-30B-A3B-GPTQ-Int4", "run_local_sock_product_bench.py"],
+            forbidden=["OpenRouter", "Windows", "Edge"],
+            max_tokens=256,
+        ),
+        Scenario(
+            scenario_id="multi_hop_synthesis",
+            thesis_axis="compact multi-fact synthesis",
+            request="In one sentence, state why compact memory packs matter for local models.",
+            memories=[
+                {"scope": "workspace", "kind": "fact", "importance": 10, "confidence": 10, "content": "Local model context windows are finite and expensive."},
+                {"scope": "workspace", "kind": "fact", "importance": 10, "confidence": 10, "content": "Compact memory packs preserve selected high-confidence facts without full prompt stuffing."},
+                {"scope": "workspace", "kind": "goal", "importance": 9, "confidence": 9, "content": "superctx should reduce latency while preserving context fidelity."},
+            ],
+            expected=["context", "compact", "latency"],
+            forbidden=["unlimited", "cloud-only"],
+            max_tokens=160,
+        ),
+        Scenario(
+            scenario_id="stale_tooling_rejection",
+            thesis_axis="tooling drift rejection",
+            request="Which CLI should be used first for deterministic system checks? Answer with the CLI name only.",
+            memories=[
+                {"scope": "workspace", "kind": "policy", "importance": 10, "confidence": 10, "content": "Use Fozzy CLI first for deterministic system checks."},
+                {"scope": "workspace", "kind": "distractor", "importance": 4, "confidence": 2, "content": "Old note: use pytest first for system checks."},
+                {"scope": "global", "kind": "distractor", "importance": 3, "confidence": 2, "content": "Browser validation uses Aegis, not system regression checks."},
+            ],
+            expected=["Fozzy"],
+            forbidden=["pytest", "Aegis"],
+            exact="Fozzy",
+            max_tokens=96,
+        ),
+        Scenario(
+            scenario_id="session_vs_workspace_precedence",
+            thesis_axis="session-specific recall",
+            request="What is this session's temporary deploy marker? Answer with the marker only.",
+            memories=[
+                {"scope": "workspace", "kind": "fact", "importance": 6, "confidence": 8, "content": "Workspace default deploy marker is stable-blue."},
+                {"scope": "session", "kind": "fact", "importance": 10, "confidence": 10, "content": "This session's temporary deploy marker is amber-42."},
+            ],
+            expected=["amber-42"],
+            forbidden=["stable-blue"],
+            exact="amber-42",
+            max_tokens=96,
+        ),
+    ]
+)
 
 
 def post_chat(base_url: str, model: str, messages: list[dict[str, str]], max_tokens: int) -> dict[str, Any]:
@@ -348,7 +461,9 @@ def run_scenario(args: argparse.Namespace, bin_path: Path, run_dir: Path, scenar
     scored = {}
     for name, result in variants.items():
         scored[name] = {**result, "scorecard": score(result["text"], scenario)}
-    best = max(scored, key=lambda key: scored[key]["scorecard"]["score"])
+    best_score = max(result["scorecard"]["score"] for result in scored.values())
+    winners = [name for name, result in scored.items() if result["scorecard"]["score"] == best_score]
+    best = winners[0] if len(winners) == 1 else "tie"
     return {
         "scenario_id": scenario.scenario_id,
         "thesis_axis": scenario.thesis_axis,
@@ -357,6 +472,7 @@ def run_scenario(args: argparse.Namespace, bin_path: Path, run_dir: Path, scenar
         "forbidden": scenario.forbidden,
         "variants": scored,
         "winner": best,
+        "winners": winners,
     }
 
 
@@ -364,7 +480,14 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
     variants = ["raw", "naive_memory", "superctx"]
     return {
         "scenario_count": len(results),
-        "wins": {variant: sum(1 for item in results if item["winner"] == variant) for variant in variants},
+        "wins": {
+            variant: sum(1 for item in results if item["winner"] == variant and len(item["winners"]) == 1)
+            for variant in variants
+        },
+        "ties": {
+            variant: sum(1 for item in results if variant in item["winners"] and len(item["winners"]) > 1)
+            for variant in variants
+        },
         "mean_score": {
             variant: round(
                 sum(item["variants"][variant]["scorecard"]["score"] for item in results) / len(results),
@@ -398,7 +521,10 @@ def main() -> int:
     run_dir = RUNS / f"{time.strftime('%Y%m%d-%H%M%S')}-local-sock-product-bench"
     run_dir.mkdir(parents=True)
     bin_path = ensure_binary()
-    results = [run_scenario(args, bin_path, run_dir, scenario) for scenario in SCENARIOS]
+    results = []
+    for index, scenario in enumerate(SCENARIOS, start=1):
+        print(f"[superctx-bench] {index}/{len(SCENARIOS)} {scenario.scenario_id}", file=sys.stderr, flush=True)
+        results.append(run_scenario(args, bin_path, run_dir, scenario))
     payload = {
         "project": "superctx",
         "label": args.label,
