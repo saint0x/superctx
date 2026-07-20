@@ -149,23 +149,12 @@ fn curl_post_json(url: str, payload_json: str) -> str {
     discard proc.close(handle)
     return stdout
 }
-fn jq_extract(path: str, query: str) -> str {
-    let env_map = proc.env_new()
-    let argv = proc.argv_new()
-    discard proc.argv_push(argv, "-r")
-    discard proc.argv_push(argv, query)
-    discard proc.argv_push(argv, path)
-    let handle = proc.spawn_cmd("/usr/bin/jq", argv, env_map, "")
-    discard proc.wait(handle, 30000)
-    let stdout = str.trim(proc.stdout(handle))
-    discard proc.close(handle)
-    return stdout
-}
-fn extract_content_from_json(adapter: str, path: str) -> str {
+fn extract_content_from_json(adapter: str, raw_response: str) -> str {
+    let parsed = json.parse(if raw_response == "" { "{}" } else { raw_response })
     if adapter == "OllamaAdapter" {
-        return jq_extract(path, ".message.content // \"\"")
+        return json.get_str(json.path(parsed, "message"), "content")
     }
-    return jq_extract(path, ".choices[0].message.content // \"\"")
+    return json.get_str(json.path(parsed, "choices[0].message"), "content")
 }
 fn deterministic_exact(request: str) -> str {
     return services.validator.exact_expected(request)
@@ -198,6 +187,6 @@ fn complete_json(session_id: str, frame_json: str, repair_note: str) -> str {
     let raw_response = curl_post_json(adapter_endpoint(adapter), payload)
     let raw_path = services.store.trace_path(session_id, "adapter.raw.json")
     fs.write_file(raw_path, raw_response)
-    let content = extract_content_from_json(adapter, raw_path)
+    let content = extract_content_from_json(adapter, raw_response)
     return model.types.completion_json(session_id, adapter, if content == "" { "error" } else { "ok" }, adapter_model(adapter), content, raw_path, services.store.now_text())
 }

@@ -10,8 +10,24 @@ fn extract_request(frame_json: str) -> str {
 fn extract_completion_content(completion_json: str) -> str {
     return json.get_str(json.parse(completion_json), "content")
 }
+fn visible_answer_content(content: str) -> str {
+    let marker = "</think>"
+    let marker_len = str.len(marker)
+    let mut idx = 0
+    let mut last_end = 0
+    while idx + marker_len <= str.len(content) {
+        if str.slice(content, idx, idx + marker_len) == marker {
+            last_end = idx + marker_len
+        }
+        idx = idx + 1
+    }
+    if last_end > 0 {
+        return str.trim(str.slice(content, last_end, str.len(content)))
+    }
+    return str.trim(content)
+}
 fn normalize_exact_content(content: str) -> str {
-    return str.trim(util.strip_chars(content, "*", "`", "\n", "\r"))
+    return str.trim(util.strip_chars(visible_answer_content(content), "*", "`", "\n", "\r"))
 }
 fn extract_math_expression(request: str) -> str {
     let mut idx: i32 = 0;
