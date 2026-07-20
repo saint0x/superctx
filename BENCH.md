@@ -43,6 +43,57 @@ python3 arena/run_local_sock_product_bench.py \
 
 Results should be appended below after each production run.
 
+## 2026-07-19 - GMK Qwen3 30B Optimized Compact Runtime Bench
+
+Environment:
+
+- Engine: `sock` serving `Qwen/Qwen3-30B-A3B-GPTQ-Int4`
+- Hardware: GMK Strix Halo / ROCm WSL
+- Endpoint: `http://127.0.0.1:8000/v1/chat/completions`
+- Server shape: `--max-model-len 4096`, `--gpu-memory-utilization 0.72`, `--enforce-eager`
+- Harness run: `/home/deepsaint/work/superctx/arena/runs/20260719-192933-local-sock-product-bench`
+- Label: `gmk-qwen3-30b-4096-compact-runtime-v2`
+
+Production changes validated by this run:
+
+- Replaced full-frame model prompting with a compact memory-pack prompt that carries only the selected memory, task mode, answer contract, grounding contract, citation requirement, and user request.
+- Added exact/literal answer discipline directly to the compact protocol so the model returns only the requested value when the contract requires it.
+- Added a deterministic exact-arithmetic fast path for exact tasks that can be computed without spending model tokens.
+- Reduced provider `max_tokens` by task mode and set deterministic temperature for repeatable local-model behavior.
+- Avoided unnecessary local-path repair calls for valid `src/` and `.brain/` paths.
+
+Summary:
+
+| Variant | Wins | Mean score | Mean latency |
+| --- | ---: | ---: | ---: |
+| `raw` | 0 | -0.75 | 6.533s |
+| `naive_memory` | 1 | 1.25 | 6.243s |
+| `superctx` | 3 | 3.00 | 1.483s |
+
+Scenario detail:
+
+| Scenario | Winner | Raw | Naive memory | superctx | superctx latency |
+| --- | --- | ---: | ---: | ---: | ---: |
+| exact tool contract | `superctx` | -2 | -2 | 3 | 0.070s |
+| local grounded paths | `superctx` | 0 | 1 | 2 | 1.272s |
+| context budget under distractors | `superctx` | 1 | 3 | 4 | 3.994s |
+| cross-round recall | `naive_memory` | -2 | 3 | 3 | 0.595s |
+
+Delta versus the earlier full-frame run:
+
+| Metric | Earlier full-frame `superctx` | Optimized compact `superctx` | Change |
+| --- | ---: | ---: | ---: |
+| Wins | 2 | 3 | +1 |
+| Mean score | 2.50 | 3.00 | +0.50 |
+| Mean latency | 31.633s | 1.483s | 21.3x faster |
+
+Interpretation:
+
+- Reality: the memory-pack thesis held while removing most of the previous latency overhead; `superctx` now beats both raw prompting and naive memory on mean quality and mean latency in this bench.
+- Reality: the largest speedup comes from not sending the whole frame to the model, not asking the model to compute deterministic exact arithmetic, and sharply bounding completion tokens.
+- Reality: `local_grounding_paths` still scores 2 rather than 3 because the response is correct and compact but does not exhaust every scoring nuance.
+- Honest thesis: `superctx` is now production-plausible for local-model context discipline under this 4096-token Qwen3 30B setup. The next quality work should expand adversarial memory-ranking cases rather than add more prompt bulk.
+
 ## 2026-07-19 - GMK Qwen3 30B 4096-Context Product Bench
 
 Environment:

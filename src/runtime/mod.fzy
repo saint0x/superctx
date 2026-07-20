@@ -49,6 +49,24 @@ fn record_result(session_id: str, status: str, result_json: str) -> i32 {
 
 fn complete(session_id: str, workspace_id: str, request: str) -> str {
     let frame = ask(session_id, workspace_id, request);
+    let mode = services.validator.frame_mode(frame);
+    if mode == "exact" {
+        let expected = services.validator.exact_expected(request);
+        if expected != "" {
+            let result = model.types.completion_json(
+                session_id,
+                "DeterministicCompute",
+                "ok",
+                "deterministic",
+                expected,
+                services.store.trace_path(session_id, "adapter.raw.json"),
+                services.store.now_text(),
+            );
+            discard services.store.save_trace(session_id, "adapter.raw.json", result);
+            discard record_result(session_id, "completed", result);
+            return result;
+        }
+    }
     let first = services.adapters.complete_json(session_id, frame, "");
     let first_validation = services.validator.validate_completion_json(frame, first, "false");
     let first_validation_parsed = model.types.parse_doc(first_validation);

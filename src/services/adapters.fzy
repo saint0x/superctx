@@ -107,11 +107,105 @@ fn tool_schemas_json() -> str {
     discard list.push(items, model.types.tool_schema_json("brain.restore", "Restore a prior brain snapshot.", schema_object_json(), "memory_write", "snapshot", "authoritative", "global"))
     return json.array(items)
 }
+fn compact_memory_line(selected_memory: JsonHandle, index: i32) -> str {
+    let item = json.get(selected_memory, str.from_i32(index))
+    let content = model.types.memory_content(item)
+    if content == "" { return "" }
+    return str.concat(
+        "- [scope=",
+        str.concat(
+            model.types.memory_scope(item),
+            str.concat(
+                " kind=",
+                str.concat(
+                    model.types.memory_kind(item),
+                    str.concat(
+                        " importance=",
+                        str.concat(
+                            model.types.memory_importance(item),
+                            str.concat(
+                                " confidence=",
+                                str.concat(model.types.memory_confidence(item), str.concat("] ", content)),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+}
+fn append_line_if_present(current: str, line: str) -> str {
+    if line == "" { return current }
+    if current == "" { return line }
+    return str.concat(str.concat(current, "\n"), line)
+}
+fn compact_memory_pack_text(frame: JsonHandle) -> str {
+    let selected_memory = json.path(frame, "selected_memory")
+    let mut out = ""
+    out = append_line_if_present(out, compact_memory_line(selected_memory, 0))
+    out = append_line_if_present(out, compact_memory_line(selected_memory, 1))
+    out = append_line_if_present(out, compact_memory_line(selected_memory, 2))
+    out = append_line_if_present(out, compact_memory_line(selected_memory, 3))
+    out = append_line_if_present(out, compact_memory_line(selected_memory, 4))
+    out = append_line_if_present(out, compact_memory_line(selected_memory, 5))
+    if out == "" { return "- no selected memory" }
+    return out
+}
+fn compact_prompt_from_frame(frame_json: str) -> str {
+    let frame = json.parse(frame_json)
+    let protocol = json.path(frame, "protocol")
+    return str.concat(
+        "superctx memory pack v1\n",
+        str.concat(
+            "Use selected memory as the authoritative external context. Prefer higher importance/confidence. Ignore stale or distractor records when better records conflict. If the answer_contract asks for an exact or literal answer, return only that value. Return only the final answer; do not include <think> blocks.\n\n",
+            str.concat(
+                "mode: ",
+                str.concat(
+                    json.get_str(protocol, "task_mode"),
+                    str.concat(
+                        "\nanswer_contract: ",
+                        str.concat(
+                            json.get_str(protocol, "answer_contract"),
+                            str.concat(
+                                "\ngrounding_contract: ",
+                                str.concat(
+                                    json.get_str(protocol, "grounding_contract"),
+                                    str.concat(
+                                        "\nmust_cite_paths: ",
+                                        str.concat(
+                                            json.get_str(protocol, "must_cite_paths"),
+                                            str.concat(
+                                                "\n\nselected_memory:\n",
+                                                str.concat(
+                                                    compact_memory_pack_text(frame),
+                                                    str.concat(
+                                                        "\n\nuser_request:\n",
+                                                        str.concat(json.get_str(frame, "user_request"), "\n\n/no_think"),
+                                                    ),
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+}
+fn max_tokens_for_frame(frame_json: str) -> str {
+    let mode = services.validator.frame_mode(frame_json)
+    if mode == "exact" { return "64" }
+    if mode == "local_inspect" { return "192" }
+    return "256"
+}
 fn provider_payload_json(adapter: str, frame_json: str, repair_note: str) -> str {
     let messages = list.new()
     let system_payload = map.new()
     discard map.set(system_payload, "role", json.str("system"))
-    discard map.set(system_payload, "content", json.str("You are operating through superctx. Follow the protocol in the provided frame exactly."))
+    discard map.set(system_payload, "content", json.str("You are operating through superctx. Use the compact memory pack and obey the answer contract exactly."))
     discard list.push(messages, json.object(system_payload))
     if repair_note != "" {
         let repair_payload = map.new()
@@ -121,12 +215,13 @@ fn provider_payload_json(adapter: str, frame_json: str, repair_note: str) -> str
     }
     let user_payload = map.new()
     discard map.set(user_payload, "role", json.str("user"))
-    discard map.set(user_payload, "content", json.str(frame_json))
+    discard map.set(user_payload, "content", json.str(compact_prompt_from_frame(frame_json)))
     discard list.push(messages, json.object(user_payload))
     let payload = map.new()
     discard map.set(payload, "model", json.str(adapter_model(adapter)))
     discard map.set(payload, "messages", json.array(messages))
-    discard map.set(payload, "temperature", "0.1")
+    discard map.set(payload, "temperature", "0.0")
+    discard map.set(payload, "max_tokens", max_tokens_for_frame(frame_json))
     if adapter == "OllamaAdapter" {
         discard map.set(payload, "stream", "false")
     }
