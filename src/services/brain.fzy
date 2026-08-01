@@ -89,6 +89,13 @@ fn forget(memory_id: str) -> str {
     return payload
 }
 
+fn evict(memory_id: str) -> str {
+    let parsed = load_memory_parsed(memory_id);
+    let payload = memory_json_with(parsed, memory_content(parsed), json.get_str(parsed, "importance"), "false", memory_scope(parsed), "evicted");
+    services.store.save_memory(memory_id, payload);
+    return payload
+}
+
 fn score_memory(parsed: JsonHandle, request: str, workspace_id: str, session_id: str) -> i32 {
     let mut score = memory_importance(parsed) * 10;
     score = score + (memory_confidence(parsed) * 5);
@@ -226,14 +233,30 @@ fn restore(snapshot_id: str) -> str {
     return util.json_obj2("status", json.str("ok"), "snapshot_id", json.str(snapshot_id))
 }
 fn compact(workspace_id: str, session_id: str, request: str) -> str {
-    let selected_ids = query_ids_text(request, workspace_id, session_id, 3);
-    let summary = remember("workspace", "summary", str.concat("Compacted context for request: ", request), 9, 9, 1, "persistent", "brain.compact", workspace_id, session_id);
+    let selected_ids = query_ids_text(request, workspace_id, session_id, 64);
+    let mut summary_text = str.concat("Compacted context for request: ", str.concat(request, "\nReplaced source memory digest:"));
+    let mut source_text = selected_ids;
+    while source_text != "" {
+        let current_id = util.first_line(source_text);
+        if current_id != "" {
+            let raw = services.store.load_memory(current_id);
+            if raw != "" {
+                let parsed = model.types.parse_doc(raw);
+                summary_text = str.concat(summary_text, str.concat("\n- ", str.concat(current_id, str.concat(": ", util.truncate(memory_content(parsed), 220)))));
+            }
+        }
+        source_text = util.drop_first_line(source_text)
+    }
+    let summary = remember("workspace", "summary", summary_text, 9, 9, 1, "persistent", "brain.compact", workspace_id, session_id);
     let mut remaining = selected_ids;
     let summary_id = model.types.memory_id(model.types.parse_doc(summary));
     while remaining != "" {
         let current_id = util.first_line(remaining);
         if current_id != "" {
-            discard link(summary_id, "derived_from", current_id)
+            discard link(summary_id, "derived_from", current_id);
+            if current_id != summary_id {
+                discard evict(current_id)
+            }
         }
         remaining = util.drop_first_line(remaining)
     }

@@ -15,6 +15,7 @@ fn print_help() -> i32 {
     discard util.println("  unpin <memory_id>");
     discard util.println("  promote <memory_id>");
     discard util.println("  demote <memory_id>");
+    discard util.println("  evict <memory_id>");
     discard util.println("  forget <memory_id>");
     discard util.println("  compact <workspace_id> <session_id> <request>");
     discard util.println("  snapshot");
@@ -43,6 +44,8 @@ fn run_init() -> i32 {
 }
 
 fn run_remember() -> i32 {
+    let workspace_id = if arg(7) == "" { "workspace" } else { arg(7) };
+    let session_id = if arg(8) == "" { "default" } else { arg(8) };
     let payload = services.brain.remember(
         arg(2),
         arg(3),
@@ -52,8 +55,8 @@ fn run_remember() -> i32 {
         0,
         "persistent",
         "cli.remember",
-        "workspace",
-        "default",
+        workspace_id,
+        session_id,
     );
     return print_json(payload)
 }
@@ -95,6 +98,9 @@ fn dispatch(command: str) -> i32 {
     }
     if command == "demote" {
         return print_json(services.brain.demote(arg(2)))
+    }
+    if command == "evict" {
+        return print_json(services.brain.evict(arg(2)))
     }
     if command == "forget" {
         return print_json(services.brain.forget(arg(2)))

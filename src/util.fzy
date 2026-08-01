@@ -144,6 +144,13 @@ fn count_occurrences(text_value: str, needle: str) -> i32 {
     return count
 }
 
+fn truncate(text_value: str, max_chars: i32) -> str {
+    if str.len(text_value) <= max_chars {
+        return text_value
+    }
+    return str.concat(str.slice(text_value, 0, max_chars), "...")
+}
+
 fn is_digit(ch: str) -> i32 {
     if ch == "0" || ch == "1" || ch == "2" || ch == "3" || ch == "4" || ch == "5" || ch == "6" || ch == "7" || ch == "8" || ch == "9" {
         return 1
